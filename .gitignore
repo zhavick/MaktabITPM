@@ -1,0 +1,13 @@
+# Build and binary folders
+bin/
+obj/
+node_modules/
+dist/
+.vscode/
+.idea/
+*.user
+*.suo
+*.log
+uploads/
+Uploads/
+mysql_data/
