@@ -1,0 +1,130 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+
+namespace ProjectManagement.Api.DTOs
+{
+    public class CreateProjectDto
+    {
+        [Required]
+        [MaxLength(150)]
+        public string Name { get; set; } = string.Empty;
+
+        [Required]
+        [MaxLength(50)]
+        public string Code { get; set; } = string.Empty;
+
+        [Required]
+        public string Description { get; set; } = string.Empty;
+
+        [Required]
+        [MaxLength(150)]
+        public string ClientName { get; set; } = string.Empty;
+
+        public DateTime StartDate { get; set; }
+        public DateTime? EndDate { get; set; }
+
+        public decimal Budget { get; set; } = 0.00m;
+        public List<int>? MemberUserIds { get; set; }
+    }
+
+    public class ProjectResponseDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Code { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string ClientName { get; set; } = string.Empty;
+        public DateTime StartDate { get; set; }
+        public DateTime? EndDate { get; set; }
+        public string Status { get; set; } = "Active";
+        public decimal Budget { get; set; }
+        public int TotalTasks { get; set; }
+        public int CompletedTasks { get; set; }
+        public int MemberCount { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public List<ProjectMemberDto> Members { get; set; } = new();
+    }
+
+    public class ProjectMemberDto
+    {
+        public int UserId { get; set; }
+        public string FullName { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string Role { get; set; } = string.Empty;
+        public string EmploymentType { get; set; } = string.Empty;
+        public string RoleInProject { get; set; } = string.Empty;
+    }
+
+    public class CreateTaskDto
+    {
+        [Required]
+        public int ProjectId { get; set; }
+
+        [Required]
+        [MaxLength(200)]
+        public string Title { get; set; } = string.Empty;
+
+        [Required]
+        public string Description { get; set; } = string.Empty;
+
+        public string Status { get; set; } = "Todo"; // Todo, InProgress, InReview, Done
+        public string Priority { get; set; } = "Medium"; // Low, Medium, High, Urgent
+        public int? AssigneeId { get; set; }
+        public DateTime? DueDate { get; set; }
+        public decimal EstimatedHours { get; set; } = 0.00m;
+    }
+
+    public class UpdateTaskStatusDto
+    {
+        [Required]
+        public string Status { get; set; } = "Todo"; // Todo, InProgress, InReview, Done
+    }
+
+    public class TaskResponseDto
+    {
+        public int Id { get; set; }
+        public int ProjectId { get; set; }
+        public string ProjectName { get; set; } = string.Empty;
+        public string ProjectCode { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public string Priority { get; set; } = string.Empty;
+        public int? AssigneeId { get; set; }
+        public string? AssigneeName { get; set; }
+        public string? AssigneeAvatar { get; set; }
+        public DateTime? DueDate { get; set; }
+        public decimal EstimatedHours { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public class CreateNoteDto
+    {
+        public int? ProjectId { get; set; }
+
+        [Required]
+        [MaxLength(200)]
+        public string Title { get; set; } = string.Empty;
+
+        [Required]
+        public string Content { get; set; } = string.Empty;
+
+        [Required]
+        public string Category { get; set; } = "General"; // Meeting, Architecture, Guide, General
+    }
+
+    public class NoteResponseDto
+    {
+        public int Id { get; set; }
+        public int? ProjectId { get; set; }
+        public string? ProjectName { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Content { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public int CreatedByUserId { get; set; }
+        public string CreatedByUserName { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+}
