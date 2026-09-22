@@ -214,6 +214,95 @@ namespace ProjectManagement.Api.Controllers
             return Ok(new { success = true, message = "Tugas berhasil dihapus." });
         }
 
+        [HttpGet("export")]
+        public async Task<IActionResult> ExportTasks(
+            [FromQuery] int? projectId,
+            [FromQuery] string? category,
+            [FromQuery] string? status,
+            [FromQuery] string? search,
+            [FromQuery] string format = "xlsx")
+        {
+            var query = _context.Tasks
+                .Include(t => t.Project)
+                .Include(t => t.Assignee)
+                .AsQueryable();
+
+            if (projectId.HasValue && projectId.Value > 0)
+                query = query.Where(t => t.ProjectId == projectId.Value);
+
+            if (!string.IsNullOrWhiteSpace(category))
+                query = query.Where(t => t.Category == category);
+
+            if (!string.IsNullOrWhiteSpace(status))
+                query = query.Where(t => t.Status == status);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim().ToLower();
+                query = query.Where(t => 
+                    t.Title.ToLower().Contains(s) ||
+                    t.Description.ToLower().Contains(s) ||
+                    (t.Category != null && t.Category.ToLower().Contains(s)) ||
+                    (t.Milestone != null && t.Milestone.ToLower().Contains(s)) ||
+                    (t.Project != null && (t.Project.Name.ToLower().Contains(s) || t.Project.Code.ToLower().Contains(s))) ||
+                    (t.Assignee != null && t.Assignee.FullName.ToLower().Contains(s)));
+            }
+
+            var tasks = await query
+                .OrderByDescending(t => t.CreatedAt)
+                .Select(t => new TaskResponseDto
+                {
+                    Id = t.Id,
+                    ProjectId = t.ProjectId,
+                    ProjectName = t.Project != null ? t.Project.Name : "",
+                    ProjectCode = t.Project != null ? t.Project.Code : "",
+                    ProjectColor = t.Project != null ? t.Project.Color : "#4f46e5",
+                    Title = t.Title,
+                    Description = t.Description,
+                    Status = t.Status,
+                    Priority = t.Priority,
+                    Category = t.Category,
+                    Milestone = t.Milestone,
+                    AssigneeId = t.AssigneeId,
+                    AssigneeName = t.Assignee != null ? t.Assignee.FullName : null,
+                    AssigneeAvatar = t.Assignee != null ? t.Assignee.AvatarUrl : null,
+                    DueDate = t.DueDate,
+                    EstimatedHours = t.EstimatedHours,
+                    CreatedAt = t.CreatedAt
+                })
+                .ToListAsync();
+
+            var filters = new List<string>();
+            if (projectId.HasValue && projectId.Value > 0)
+            {
+                var p = await _context.Projects.FindAsync(projectId.Value);
+                if (p != null) filters.Add($"Proyek: {p.Name}");
+            }
+            if (!string.IsNullOrWhiteSpace(category)) filters.Add($"Kategori: {category}");
+            if (!string.IsNullOrWhiteSpace(status)) filters.Add($"Status: {status}");
+            if (!string.IsNullOrWhiteSpace(search)) filters.Add($"Pencarian: \"{search.Trim()}\"");
+
+            var filterSummary = filters.Count > 0 ? string.Join(", ", filters) : "Semua Data (Tanpa Filter)";
+
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name);
+            await _auditService.LogAsync("TASKS_EXPORTED", "Tasks", 
+                $"Data tugas diekspor ({tasks.Count} tugas, Format: {format.ToUpper()}, Filter: {filterSummary}).", 
+                "Info", null, currentUserName);
+
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+            if (format.Equals("csv", StringComparison.OrdinalIgnoreCase))
+            {
+                var csvBytes = _importService.GenerateTasksExportCsv(tasks);
+                return File(csvBytes, "text/csv; charset=utf-8", $"Laporan_Tugas_{timestamp}.csv");
+            }
+            else
+            {
+                var excelBytes = _importService.GenerateTasksExportExcel(tasks, filterSummary);
+                return File(excelBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Laporan_Tugas_{timestamp}.xlsx");
+            }
+        }
+
         [HttpGet("template-excel")]
         [AllowAnonymous]
         public IActionResult DownloadTemplateExcel()

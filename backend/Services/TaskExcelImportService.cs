@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using ClosedXML.Excel;
+using ProjectManagement.Api.DTOs;
 using ProjectManagement.Api.Models;
 
 namespace ProjectManagement.Api.Services
@@ -21,6 +22,8 @@ namespace ProjectManagement.Api.Services
         List<TaskItem> ParseTasksFromExcel(Stream fileStream, int targetProjectId, List<User> users);
         List<ParsedTaskItem> ParseTasksWithProjectFromExcel(Stream fileStream, List<User> users, string? defaultProjectName = null);
         byte[] GenerateTemplateExcel();
+        byte[] GenerateTasksExportExcel(List<TaskResponseDto> tasks, string? filterSummary = null);
+        byte[] GenerateTasksExportCsv(List<TaskResponseDto> tasks);
     }
 
     public class TaskExcelImportService : ITaskExcelImportService
@@ -362,6 +365,215 @@ namespace ProjectManagement.Api.Services
             using var memoryStream = new MemoryStream();
             workbook.SaveAs(memoryStream);
             return memoryStream.ToArray();
+        }
+
+        public byte[] GenerateTasksExportExcel(List<TaskResponseDto> tasks, string? filterSummary = null)
+        {
+            using var workbook = new XLWorkbook();
+            var worksheet = workbook.Worksheets.Add("Laporan Tugas");
+
+            // Title and Metadata
+            worksheet.Cell(1, 1).Value = "LAPORAN DATA TUGAS PROYEK";
+            worksheet.Cell(1, 1).Style.Font.Bold = true;
+            worksheet.Cell(1, 1).Style.Font.FontSize = 15;
+            worksheet.Cell(1, 1).Style.Font.FontColor = XLColor.FromHtml("#1E1B4B");
+
+            var metaText = $"Waktu Ekspor: {DateTime.Now:dd/MM/yyyy HH:mm:ss} | Total: {tasks.Count} Tugas";
+            if (!string.IsNullOrWhiteSpace(filterSummary))
+            {
+                metaText += $" | Filter: {filterSummary}";
+            }
+            worksheet.Cell(2, 1).Value = metaText;
+            worksheet.Cell(2, 1).Style.Font.Italic = true;
+            worksheet.Cell(2, 1).Style.Font.FontSize = 9;
+            worksheet.Cell(2, 1).Style.Font.FontColor = XLColor.FromHtml("#64748B");
+
+            // Table Headers
+            string[] headers = {
+                "No",
+                "Kode Proyek",
+                "Nama Proyek",
+                "Judul Tugas",
+                "Kategori",
+                "Milestone SDLC",
+                "PIC / Assignee",
+                "Prioritas",
+                "Status",
+                "Estimasi (Jam)",
+                "Deadline",
+                "Dibuat Pada",
+                "Deskripsi"
+            };
+
+            int headerRow = 4;
+            for (int c = 0; c < headers.Length; c++)
+            {
+                var cell = worksheet.Cell(headerRow, c + 1);
+                cell.Value = headers[c];
+                cell.Style.Font.Bold = true;
+                cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#4F46E5");
+                cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                cell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            }
+            worksheet.Row(headerRow).Height = 26;
+
+            int currentRow = headerRow + 1;
+            for (int i = 0; i < tasks.Count; i++)
+            {
+                var t = tasks[i];
+                var row = worksheet.Row(currentRow);
+                row.Height = 22;
+
+                worksheet.Cell(currentRow, 1).Value = i + 1;
+                worksheet.Cell(currentRow, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                worksheet.Cell(currentRow, 2).Value = !string.IsNullOrWhiteSpace(t.ProjectCode) ? t.ProjectCode : "-";
+                worksheet.Cell(currentRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                worksheet.Cell(currentRow, 3).Value = !string.IsNullOrWhiteSpace(t.ProjectName) ? t.ProjectName : "-";
+                worksheet.Cell(currentRow, 4).Value = !string.IsNullOrWhiteSpace(t.Title) ? t.Title : "-";
+                worksheet.Cell(currentRow, 5).Value = !string.IsNullOrWhiteSpace(t.Category) ? t.Category : "-";
+                worksheet.Cell(currentRow, 6).Value = !string.IsNullOrWhiteSpace(t.Milestone) ? t.Milestone : "-";
+                worksheet.Cell(currentRow, 7).Value = !string.IsNullOrWhiteSpace(t.AssigneeName) ? t.AssigneeName : "Belum Ditugaskan";
+
+                var priorityCell = worksheet.Cell(currentRow, 8);
+                priorityCell.Value = !string.IsNullOrWhiteSpace(t.Priority) ? t.Priority : "-";
+                priorityCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                var statusCell = worksheet.Cell(currentRow, 9);
+                statusCell.Value = !string.IsNullOrWhiteSpace(t.Status) ? t.Status : "-";
+                statusCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                var estCell = worksheet.Cell(currentRow, 10);
+                estCell.Value = t.EstimatedHours;
+                estCell.Style.NumberFormat.Format = "#,##0.00";
+                estCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+                var deadlineCell = worksheet.Cell(currentRow, 11);
+                if (t.DueDate.HasValue)
+                {
+                    deadlineCell.Value = t.DueDate.Value.ToString("dd/MM/yyyy");
+                }
+                else
+                {
+                    deadlineCell.Value = "-";
+                }
+                deadlineCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                var createdCell = worksheet.Cell(currentRow, 12);
+                createdCell.Value = t.CreatedAt.ToString("dd/MM/yyyy HH:mm");
+                createdCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                worksheet.Cell(currentRow, 13).Value = !string.IsNullOrWhiteSpace(t.Description) ? t.Description : "-";
+
+                // Zebra striping for even rows
+                if (i % 2 == 1)
+                {
+                    worksheet.Range(currentRow, 1, currentRow, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#F8FAFC");
+                }
+
+                currentRow++;
+            }
+
+            // Border table range & summary
+            if (tasks.Count > 0)
+            {
+                var tableRange = worksheet.Range(headerRow, 1, currentRow - 1, headers.Length);
+                tableRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                tableRange.Style.Border.OutsideBorderColor = XLColor.FromHtml("#CBD5E1");
+                tableRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                tableRange.Style.Border.InsideBorderColor = XLColor.FromHtml("#E2E8F0");
+
+                // Total row
+                var totalRow = worksheet.Row(currentRow);
+                totalRow.Height = 24;
+                worksheet.Cell(currentRow, 1).Value = "TOTAL JAM ESTIMASI";
+                worksheet.Range(currentRow, 1, currentRow, 9).Merge();
+                worksheet.Cell(currentRow, 1).Style.Font.Bold = true;
+                worksheet.Cell(currentRow, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                worksheet.Cell(currentRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#EEF2FF");
+
+                var sumHours = tasks.Sum(t => t.EstimatedHours);
+                var sumCell = worksheet.Cell(currentRow, 10);
+                sumCell.Value = sumHours;
+                sumCell.Style.Font.Bold = true;
+                sumCell.Style.NumberFormat.Format = "#,##0.00";
+                sumCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                sumCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#EEF2FF");
+
+                worksheet.Range(currentRow, 11, currentRow, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#EEF2FF");
+                worksheet.Range(currentRow, 1, currentRow, headers.Length).Style.Border.TopBorder = XLBorderStyleValues.Double;
+                worksheet.Range(currentRow, 1, currentRow, headers.Length).Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+            }
+
+            worksheet.Columns().AdjustToContents();
+            if (worksheet.Column(4).Width > 45) worksheet.Column(4).Width = 45;
+            if (worksheet.Column(13).Width > 55) worksheet.Column(13).Width = 55;
+            worksheet.Column(1).Width = 6;
+
+            using var memoryStream = new MemoryStream();
+            workbook.SaveAs(memoryStream);
+            return memoryStream.ToArray();
+        }
+
+        public byte[] GenerateTasksExportCsv(List<TaskResponseDto> tasks)
+        {
+            var sb = new StringBuilder();
+
+            string EscapeCsv(string? val)
+            {
+                if (string.IsNullOrEmpty(val)) return "\"\"";
+                var clean = val.Replace("\"", "\"\"");
+                return $"\"{clean}\"";
+            }
+
+            // CSV Headers
+            string[] headers = {
+                "No",
+                "Kode Proyek",
+                "Nama Proyek",
+                "Judul Tugas",
+                "Kategori",
+                "Milestone SDLC",
+                "PIC / Assignee",
+                "Prioritas",
+                "Status",
+                "Estimasi Jam",
+                "Deadline",
+                "Dibuat Pada",
+                "Deskripsi"
+            };
+            sb.AppendLine(string.Join(",", headers.Select(EscapeCsv)));
+
+            for (int i = 0; i < tasks.Count; i++)
+            {
+                var t = tasks[i];
+                var row = new[]
+                {
+                    (i + 1).ToString(),
+                    t.ProjectCode ?? "",
+                    t.ProjectName ?? "",
+                    t.Title ?? "",
+                    t.Category ?? "",
+                    t.Milestone ?? "",
+                    t.AssigneeName ?? "Belum Ditugaskan",
+                    t.Priority ?? "",
+                    t.Status ?? "",
+                    t.EstimatedHours.ToString("0.00", CultureInfo.InvariantCulture),
+                    t.DueDate.HasValue ? t.DueDate.Value.ToString("yyyy-MM-dd") : "",
+                    t.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"),
+                    t.Description ?? ""
+                };
+                sb.AppendLine(string.Join(",", row.Select(EscapeCsv)));
+            }
+
+            var preamble = Encoding.UTF8.GetPreamble();
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            var result = new byte[preamble.Length + bytes.Length];
+            Buffer.BlockCopy(preamble, 0, result, 0, preamble.Length);
+            Buffer.BlockCopy(bytes, 0, result, preamble.Length, bytes.Length);
+            return result;
         }
     }
 }

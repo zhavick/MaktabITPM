@@ -18,7 +18,9 @@ import {
   LayoutGrid,
   Table,
   X,
-  Trash2
+  Trash2,
+  FileText,
+  ChevronDown
 } from 'lucide-react';
 import api from '../utils/api';
 import Select2 from '../components/Select2';
@@ -43,6 +45,8 @@ export default function TasksPage() {
   const [importProjectId, setImportProjectId] = useState(null);
   const [importFile, setImportFile] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
   const [newTask, setNewTask] = useState({
@@ -206,6 +210,44 @@ export default function TasksPage() {
       errorAlert('Gagal Mengimpor', err.response?.data?.message || 'Terjadi kesalahan saat memproses berkas Excel.');
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleExport = async (format = 'xlsx') => {
+    try {
+      setExporting(true);
+      setShowExportMenu(false);
+      const params = new URLSearchParams();
+      if (selectedProjectId) params.append('projectId', selectedProjectId);
+      if (selectedCategory) params.append('category', selectedCategory);
+      if (searchQuery.trim()) params.append('search', searchQuery.trim());
+      params.append('format', format);
+
+      const response = await api.get(`/tasks/export?${params.toString()}`, {
+        responseType: 'blob'
+      });
+
+      const ext = format === 'csv' ? 'csv' : 'xlsx';
+      const mimeType = format === 'csv'
+        ? 'text/csv;charset=utf-8;'
+        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+      const blob = new Blob([response.data], { type: mimeType });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      link.setAttribute('download', `Laporan_Tugas_${dateStr}.${ext}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      showToast(`Data tugas berhasil diekspor (${format.toUpperCase()})!`, 'success');
+    } catch {
+      showToast('Gagal mengekspor data tugas', 'error');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -382,6 +424,118 @@ export default function TasksPage() {
             <FileSpreadsheet size={16} />
             <span>Import Excel</span>
           </button>
+
+          {/* Ekspor Data Dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setShowExportMenu(prev => !prev)}
+              disabled={exporting}
+              style={{
+                background: 'rgba(99, 102, 241, 0.1)',
+                color: 'var(--primary)',
+                borderColor: 'rgba(99, 102, 241, 0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+              title="Ekspor data tugas sesuai filter aktif ke berkas Excel atau CSV"
+            >
+              {exporting ? (
+                <RefreshCw size={16} className="spin" />
+              ) : (
+                <Download size={16} />
+              )}
+              <span>Ekspor Data</span>
+              <ChevronDown size={14} style={{ transform: showExportMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s ease' }} />
+            </button>
+
+            {showExportMenu && (
+              <>
+                <div 
+                  onClick={() => setShowExportMenu(false)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 99 }} 
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 6px)',
+                    right: 0,
+                    minWidth: 230,
+                    background: 'var(--bg-card)',
+                    backdropFilter: 'var(--glass-blur)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md)',
+                    boxShadow: 'var(--shadow-lg)',
+                    padding: 6,
+                    zIndex: 100,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 3
+                  }}
+                >
+                  <div style={{ padding: '6px 10px', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, borderBottom: '1px solid var(--border-color)', marginBottom: 2 }}>
+                    PILIH FORMAT EKSPOR ({filteredTasks.length} TUGAS)
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleExport('xlsx')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '8px 10px',
+                      background: 'none',
+                      border: 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.12s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-card-hover)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                  >
+                    <FileSpreadsheet size={16} style={{ color: '#10b981' }} />
+                    <div>
+                      <div style={{ fontWeight: 600 }}>Microsoft Excel (.xlsx)</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Tabel bergaris, status & total jam</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExport('csv')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '8px 10px',
+                      background: 'none',
+                      border: 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.12s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-card-hover)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                  >
+                    <FileText size={16} style={{ color: '#0284c7' }} />
+                    <div>
+                      <div style={{ fontWeight: 600 }}>Berkas CSV (.csv)</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Universal UTF-8 with BOM</div>
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
           <button className="btn btn-primary" onClick={() => setShowModal(true)}>
             <Plus size={16} />
             <span>Buat Tugas Baru</span>
