@@ -16,8 +16,11 @@ using ProjectManagement.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Add Controllers, SignalR & HTTP Context
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    });
 builder.Services.AddSignalR();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
@@ -169,6 +172,25 @@ using (var scope = app.Services.CreateScope())
                     ""SortOrder"" INTEGER NOT NULL DEFAULT 0,
                     ""IsActive"" INTEGER NOT NULL DEFAULT 1,
                     ""CreatedAt"" TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS ""TaskComments"" (
+                    ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TaskComments"" PRIMARY KEY AUTOINCREMENT,
+                    ""TaskId"" INTEGER NOT NULL,
+                    ""UserId"" INTEGER NOT NULL,
+                    ""Comment"" TEXT NOT NULL,
+                    ""CreatedAt"" TEXT NOT NULL,
+                    ""UpdatedAt"" TEXT NULL,
+                    CONSTRAINT ""FK_TaskComments_Tasks_TaskId"" FOREIGN KEY (""TaskId"") REFERENCES ""Tasks"" (""Id"") ON DELETE CASCADE,
+                    CONSTRAINT ""FK_TaskComments_Users_UserId"" FOREIGN KEY (""UserId"") REFERENCES ""Users"" (""Id"") ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS ""TaskActivities"" (
+                    ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TaskActivities"" PRIMARY KEY AUTOINCREMENT,
+                    ""TaskId"" INTEGER NOT NULL,
+                    ""UserId"" INTEGER NULL,
+                    ""ActionType"" TEXT NOT NULL,
+                    ""Description"" TEXT NOT NULL,
+                    ""CreatedAt"" TEXT NOT NULL,
+                    CONSTRAINT ""FK_TaskActivities_Tasks_TaskId"" FOREIGN KEY (""TaskId"") REFERENCES ""Tasks"" (""Id"") ON DELETE CASCADE
                 );
             ");
         }

@@ -42,6 +42,50 @@ namespace ProjectManagement.Api.Models
         public decimal EstimatedHours { get; set; } = 0.00m;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public ICollection<TaskComment> Comments { get; set; } = new List<TaskComment>();
+        public ICollection<TaskActivity> Activities { get; set; } = new List<TaskActivity>();
+    }
+
+    public class TaskComment
+    {
+        [Key]
+        public int Id { get; set; }
+
+        public int TaskId { get; set; }
+        public TaskItem? Task { get; set; }
+
+        public int UserId { get; set; }
+        public User? User { get; set; }
+
+        [Required]
+        public string Comment { get; set; } = string.Empty;
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    public class TaskActivity
+    {
+        [Key]
+        public int Id { get; set; }
+
+        public int TaskId { get; set; }
+        public TaskItem? Task { get; set; }
+
+        public int? UserId { get; set; }
+        public User? User { get; set; }
+
+        [Required]
+        [MaxLength(50)]
+        public string ActionType { get; set; } = string.Empty; // "Created", "StatusChanged", "AssigneeChanged", "PriorityChanged", "Updated", "CommentAdded"
+
+        [Required]
+        [MaxLength(500)]
+        public string Description { get; set; } = string.Empty;
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
     public class Note

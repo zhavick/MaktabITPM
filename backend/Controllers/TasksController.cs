@@ -71,6 +71,7 @@ namespace ProjectManagement.Api.Controllers
                     AssigneeAvatar = t.Assignee != null ? t.Assignee.AvatarUrl : null,
                     DueDate = t.DueDate,
                     EstimatedHours = t.EstimatedHours,
+                    CommentCount = t.Comments.Count,
                     CreatedAt = t.CreatedAt
                 })
                 .ToListAsync();
@@ -117,6 +118,7 @@ namespace ProjectManagement.Api.Controllers
                     AssigneeAvatar = t.Assignee != null ? t.Assignee.AvatarUrl : null,
                     DueDate = t.DueDate,
                     EstimatedHours = t.EstimatedHours,
+                    CommentCount = t.Comments.Count,
                     CreatedAt = t.CreatedAt
                 })
                 .ToListAsync();
@@ -150,6 +152,18 @@ namespace ProjectManagement.Api.Controllers
 
             var currentUserName = User.FindFirstValue(ClaimTypes.Name);
             var currentUserRole = User.FindFirstValue(ClaimTypes.Role);
+            int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentUserId);
+
+            _context.TaskActivities.Add(new TaskActivity
+            {
+                TaskId = task.Id,
+                UserId = currentUserId > 0 ? currentUserId : null,
+                ActionType = "Created",
+                Description = $"Tugas '{task.Title}' dibuat.",
+                CreatedAt = DateTime.UtcNow
+            });
+            await _context.SaveChangesAsync();
+
             await _auditService.LogAsync("TASK_CREATED", "Tasks", $"Tugas baru '{task.Title}' dibuat.", "Info", null, currentUserName, currentUserRole);
 
             // Broadcast real-time update to all clients
@@ -183,6 +197,7 @@ namespace ProjectManagement.Api.Controllers
                 AssigneeAvatar = assignee?.AvatarUrl,
                 DueDate = task.DueDate,
                 EstimatedHours = task.EstimatedHours,
+                CommentCount = 0,
                 CreatedAt = task.CreatedAt
             };
 
@@ -198,10 +213,21 @@ namespace ProjectManagement.Api.Controllers
 
             var oldStatus = task.Status;
             task.Status = dto.Status;
-            await _context.SaveChangesAsync();
 
+            int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentUserId);
             var currentUserName = User.FindFirstValue(ClaimTypes.Name);
             var currentUserRole = User.FindFirstValue(ClaimTypes.Role);
+
+            _context.TaskActivities.Add(new TaskActivity
+            {
+                TaskId = task.Id,
+                UserId = currentUserId > 0 ? currentUserId : null,
+                ActionType = "StatusChanged",
+                Description = $"Status tugas diubah dari '{oldStatus}' menjadi '{task.Status}'.",
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
             await _auditService.LogAsync("TASK_STATUS_CHANGED", "Tasks", $"Tugas '{task.Title}' dipindahkan dari {oldStatus} ke {task.Status}.", "Info", null, currentUserName, currentUserRole);
 
             // Broadcast real-time update to all clients
@@ -215,7 +241,17 @@ namespace ProjectManagement.Api.Controllers
                 UpdatedBy = currentUserName
             });
 
-            return Ok(new { success = true, message = "Status tugas berhasil diperbarui!", data = task });
+            return Ok(new { 
+                success = true, 
+                message = "Status tugas berhasil diperbarui!", 
+                data = new {
+                    task.Id,
+                    task.ProjectId,
+                    task.Title,
+                    task.Status,
+                    task.Priority
+                }
+            });
         }
 
         [HttpGet("{id}")]
@@ -247,6 +283,7 @@ namespace ProjectManagement.Api.Controllers
                 AssigneeAvatar = task.Assignee != null ? task.Assignee.AvatarUrl : null,
                 DueDate = task.DueDate,
                 EstimatedHours = task.EstimatedHours,
+                CommentCount = task.Comments != null ? task.Comments.Count : 0,
                 CreatedAt = task.CreatedAt
             };
 
@@ -260,6 +297,11 @@ namespace ProjectManagement.Api.Controllers
             if (task == null)
                 return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
 
+            var oldTitle = task.Title;
+            var oldStatus = task.Status;
+            var oldPriority = task.Priority;
+            var oldAssigneeId = task.AssigneeId;
+
             task.Title = dto.Title;
             task.Description = dto.Description;
             task.ProjectId = dto.ProjectId;
@@ -271,10 +313,31 @@ namespace ProjectManagement.Api.Controllers
             task.DueDate = dto.DueDate;
             task.EstimatedHours = dto.EstimatedHours;
 
-            await _context.SaveChangesAsync();
-
             var project = await _context.Projects.FindAsync(task.ProjectId);
             var assignee = task.AssigneeId.HasValue ? await _context.Users.FindAsync(task.AssigneeId.Value) : null;
+
+            int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentUserId);
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name);
+
+            var changes = new List<string>();
+            if (oldStatus != task.Status) changes.Add($"status ke '{task.Status}'");
+            if (oldPriority != task.Priority) changes.Add($"prioritas ke '{task.Priority}'");
+            if (oldAssigneeId != task.AssigneeId) changes.Add(assignee != null ? $"PIC ke '{assignee.FullName}'" : "PIC dicopot");
+            if (oldTitle != task.Title) changes.Add($"judul tugas diperbarui");
+
+            var changeSummary = changes.Count > 0 ? string.Join(", ", changes) : "detail tugas diperbarui";
+            _context.TaskActivities.Add(new TaskActivity
+            {
+                TaskId = task.Id,
+                UserId = currentUserId > 0 ? currentUserId : null,
+                ActionType = "Updated",
+                Description = $"Pembaruan tugas: {changeSummary}.",
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
+
+            var commentCount = await _context.TaskComments.CountAsync(c => c.TaskId == task.Id);
 
             var responseDto = new TaskResponseDto
             {
@@ -294,10 +357,10 @@ namespace ProjectManagement.Api.Controllers
                 AssigneeAvatar = assignee?.AvatarUrl,
                 DueDate = task.DueDate,
                 EstimatedHours = task.EstimatedHours,
+                CommentCount = commentCount,
                 CreatedAt = task.CreatedAt
             };
 
-            var currentUserName = User.FindFirstValue(ClaimTypes.Name);
             await _auditService.LogAsync("TASK_UPDATED", "Tasks", $"Tugas '{task.Title}' diperbarui.", "Info", null, currentUserName);
             await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new { 
                 Type = "TaskUpdated", 
@@ -308,6 +371,162 @@ namespace ProjectManagement.Api.Controllers
             });
 
             return Ok(new { success = true, message = "Tugas berhasil diperbarui!", data = responseDto });
+        }
+
+        [HttpGet("{id}/comments")]
+        public async Task<IActionResult> GetComments(int id)
+        {
+            var taskExists = await _context.Tasks.AnyAsync(t => t.Id == id);
+            if (!taskExists)
+                return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
+
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int.TryParse(userIdStr, out var currentUserId);
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "";
+
+            var comments = await _context.TaskComments
+                .Include(c => c.User)
+                .Where(c => c.TaskId == id)
+                .OrderBy(c => c.CreatedAt)
+                .Select(c => new TaskCommentDto
+                {
+                    Id = c.Id,
+                    TaskId = c.TaskId,
+                    UserId = c.UserId,
+                    UserName = c.User != null ? c.User.FullName : "Pengguna",
+                    UserRole = c.User != null ? c.User.Role : "Member",
+                    UserAvatar = c.User != null ? c.User.AvatarUrl : null,
+                    Comment = c.Comment,
+                    CreatedAt = c.CreatedAt,
+                    UpdatedAt = c.UpdatedAt,
+                    IsOwner = c.UserId == currentUserId || currentUserRole == "Admin" || currentUserRole == "Project Manager"
+                })
+                .ToListAsync();
+
+            return Ok(new { success = true, data = comments });
+        }
+
+        [HttpPost("{id}/comments")]
+        public async Task<IActionResult> AddComment(int id, [FromBody] CreateTaskCommentDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Comment))
+                return BadRequest(new { success = false, message = "Isi komentar tidak boleh kosong." });
+
+            var task = await _context.Tasks.FindAsync(id);
+            if (task == null)
+                return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
+
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!int.TryParse(userIdStr, out var currentUserId))
+                return Unauthorized(new { success = false, message = "Pengguna tidak terautentikasi." });
+
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name) ?? "Pengguna";
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "Member";
+
+            var comment = new TaskComment
+            {
+                TaskId = id,
+                UserId = currentUserId,
+                Comment = dto.Comment.Trim(),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.TaskComments.Add(comment);
+
+            // Add Task Activity
+            _context.TaskActivities.Add(new TaskActivity
+            {
+                TaskId = id,
+                UserId = currentUserId,
+                ActionType = "CommentAdded",
+                Description = $"{currentUserName} menambahkan komentar pada tugas.",
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
+
+            await _auditService.LogAsync("TASK_COMMENT_ADDED", "Tasks", 
+                $"{currentUserName} berkomentar pada tugas '{task.Title}'.", "Info", null, currentUserName, currentUserRole);
+
+            var user = await _context.Users.FindAsync(currentUserId);
+            var responseComment = new TaskCommentDto
+            {
+                Id = comment.Id,
+                TaskId = comment.TaskId,
+                UserId = comment.UserId,
+                UserName = user?.FullName ?? currentUserName,
+                UserRole = user?.Role ?? currentUserRole,
+                UserAvatar = user?.AvatarUrl,
+                Comment = comment.Comment,
+                CreatedAt = comment.CreatedAt,
+                IsOwner = true
+            };
+
+            // Broadcast real-time update
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new
+            {
+                Type = "TaskCommentAdded",
+                TaskId = id,
+                CommentId = comment.Id,
+                User = currentUserName
+            });
+
+            return Ok(new { success = true, message = "Komentar berhasil ditambahkan!", data = responseComment });
+        }
+
+        [HttpDelete("{id}/comments/{commentId}")]
+        public async Task<IActionResult> DeleteComment(int id, int commentId)
+        {
+            var comment = await _context.TaskComments.FirstOrDefaultAsync(c => c.Id == commentId && c.TaskId == id);
+            if (comment == null)
+                return NotFound(new { success = false, message = "Komentar tidak ditemukan." });
+
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int.TryParse(userIdStr, out var currentUserId);
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "";
+
+            // Only comment owner or Admin/Manager can delete
+            if (comment.UserId != currentUserId && currentUserRole != "Admin" && currentUserRole != "Project Manager")
+                return Forbid();
+
+            _context.TaskComments.Remove(comment);
+            await _context.SaveChangesAsync();
+
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new
+            {
+                Type = "TaskCommentDeleted",
+                TaskId = id,
+                CommentId = commentId
+            });
+
+            return Ok(new { success = true, message = "Komentar berhasil dihapus." });
+        }
+
+        [HttpGet("{id}/activities")]
+        public async Task<IActionResult> GetActivities(int id)
+        {
+            var taskExists = await _context.Tasks.AnyAsync(t => t.Id == id);
+            if (!taskExists)
+                return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
+
+            var activities = await _context.TaskActivities
+                .Include(a => a.User)
+                .Where(a => a.TaskId == id)
+                .OrderByDescending(a => a.CreatedAt)
+                .Select(a => new TaskActivityDto
+                {
+                    Id = a.Id,
+                    TaskId = a.TaskId,
+                    UserId = a.UserId,
+                    UserName = a.User != null ? a.User.FullName : "Sistem",
+                    UserAvatar = a.User != null ? a.User.AvatarUrl : null,
+                    ActionType = a.ActionType,
+                    Description = a.Description,
+                    CreatedAt = a.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(new { success = true, data = activities });
         }
 
         [HttpDelete("{id}")]

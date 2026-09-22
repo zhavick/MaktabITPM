@@ -24,13 +24,31 @@ import {
   ChevronDown,
   Edit3,
   Flag,
-  UserCheck
+  UserCheck,
+  MessageSquare,
+  Send,
+  History
 } from 'lucide-react';
 import api from '../utils/api';
 import Select2 from '../components/Select2';
 import { showToast, confirmDialog, errorAlert } from '../utils/swal';
 import { useSync } from '../context/SyncContext';
 import { useAuth } from '../context/AuthContext';
+
+function formatRelativeTime(dateStr) {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffInSec = Math.floor((now - date) / 1000);
+  if (diffInSec < 60) return 'Baru saja';
+  const diffInMin = Math.floor(diffInSec / 60);
+  if (diffInMin < 60) return `${diffInMin} menit lalu`;
+  const diffInHour = Math.floor(diffInMin / 60);
+  if (diffInHour < 24) return `${diffInHour} jam lalu`;
+  const diffInDay = Math.floor(diffInHour / 24);
+  if (diffInDay < 7) return `${diffInDay} hari lalu`;
+  return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' WIB';
+}
 
 export default function TasksPage({ onlyMyTasks = false }) {
   const location = useLocation();
@@ -60,6 +78,13 @@ export default function TasksPage({ onlyMyTasks = false }) {
   const [editingTask, setEditingTask] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [modalTab, setModalTab] = useState('details'); // 'details' | 'comments' | 'activities'
+  const [comments, setComments] = useState([]);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [newComment, setNewComment] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [activities, setActivities] = useState([]);
+  const [loadingActivities, setLoadingActivities] = useState(false);
 
   const [newTask, setNewTask] = useState({
     projectId: null,
@@ -87,9 +112,22 @@ export default function TasksPage({ onlyMyTasks = false }) {
             setTasks(res.data.data);
           }
         }).catch(() => {});
+        if (editingTask && (lastEvent.taskId === editingTask.id || !lastEvent.taskId)) {
+          fetchTaskActivities(editingTask.id);
+        }
+      } else if (lastEvent.type === 'TaskCommentAdded' || lastEvent.type === 'TaskCommentDeleted') {
+        if (editingTask && lastEvent.taskId === editingTask.id) {
+          fetchTaskComments(editingTask.id);
+          fetchTaskActivities(editingTask.id);
+        }
+        api.get(tasksEndpoint).then((res) => {
+          if (res.data && res.data.data) {
+            setTasks(res.data.data);
+          }
+        }).catch(() => {});
       }
     }
-  }, [syncTick, tasksEndpoint]);
+  }, [syncTick, tasksEndpoint, editingTask]);
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -271,7 +309,7 @@ export default function TasksPage({ onlyMyTasks = false }) {
     }
   };
 
-  const openEditModal = (task) => {
+  const openEditModal = (task, initialTab = 'details') => {
     setEditingTask({
       id: task.id,
       projectId: task.projectId,
@@ -289,7 +327,82 @@ export default function TasksPage({ onlyMyTasks = false }) {
       estimatedHours: task.estimatedHours || 0,
       createdAt: task.createdAt
     });
+    setModalTab(initialTab);
     setShowEditModal(true);
+    fetchTaskComments(task.id);
+    fetchTaskActivities(task.id);
+  };
+
+  const fetchTaskComments = async (taskId) => {
+    setLoadingComments(true);
+    try {
+      const res = await api.get(`/tasks/${taskId}/comments`);
+      if (res.data.success) {
+        setComments(res.data.data || []);
+      }
+    } catch {
+      // silent
+    } finally {
+      setLoadingComments(false);
+    }
+  };
+
+  const fetchTaskActivities = async (taskId) => {
+    setLoadingActivities(true);
+    try {
+      const res = await api.get(`/tasks/${taskId}/activities`);
+      if (res.data.success) {
+        setActivities(res.data.data || []);
+      }
+    } catch {
+      // silent
+    } finally {
+      setLoadingActivities(false);
+    }
+  };
+
+  const handleAddComment = async (e) => {
+    e?.preventDefault();
+    if (!newComment.trim() || !editingTask) return;
+    try {
+      setSubmittingComment(true);
+      const res = await api.post(`/tasks/${editingTask.id}/comments`, { comment: newComment.trim() });
+      if (res.data.success) {
+        setComments(prev => [...prev, res.data.data]);
+        setNewComment('');
+        showToast('Komentar berhasil dikirim!', 'success');
+        setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, commentCount: (t.commentCount || 0) + 1 } : t));
+        fetchTaskActivities(editingTask.id);
+      }
+    } catch (err) {
+      errorAlert('Gagal', err.response?.data?.message || 'Gagal mengirim komentar.');
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    if (!editingTask) return;
+    const confirmed = await confirmDialog({
+      title: 'Hapus Komentar?',
+      text: 'Komentar yang dihapus tidak dapat dipulihkan kembali.',
+      icon: 'warning',
+      confirmButtonText: 'Ya, Hapus',
+      cancelButtonText: 'Batal',
+      confirmButtonColor: '#ef4444'
+    });
+    if (confirmed) {
+      try {
+        const res = await api.delete(`/tasks/${editingTask.id}/comments/${commentId}`);
+        if (res.data.success) {
+          setComments(prev => prev.filter(c => c.id !== commentId));
+          showToast('Komentar berhasil dihapus.');
+          setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, commentCount: Math.max(0, (t.commentCount || 1) - 1) } : t));
+        }
+      } catch (err) {
+        errorAlert('Gagal', err.response?.data?.message || 'Gagal menghapus komentar.');
+      }
+    }
   };
 
   const handleSaveEditTask = async (e) => {
@@ -935,6 +1048,22 @@ export default function TasksPage({ onlyMyTasks = false }) {
                           >
                             <Edit3 size={13} />
                           </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => openEditModal(task, 'comments')}
+                            title="Diskusi & Komentar Tugas"
+                            style={{ 
+                              padding: '4px 8px', 
+                              display: 'inline-flex', 
+                              alignItems: 'center', 
+                              gap: 4, 
+                              color: task.commentCount > 0 ? 'var(--primary)' : 'var(--text-muted)' 
+                            }}
+                          >
+                            <MessageSquare size={13} />
+                            {task.commentCount > 0 && <span style={{ fontSize: '0.72rem', fontWeight: 700 }}>{task.commentCount}</span>}
+                          </button>
                           {task.status !== 'Done' && (
                             <button
                               type="button"
@@ -1106,12 +1235,38 @@ export default function TasksPage({ onlyMyTasks = false }) {
                               {task.assigneeName || 'Belum ditugaskan'}
                             </span>
                           </div>
-                          {task.estimatedHours > 0 && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <Clock size={13} />
-                              <span>{task.estimatedHours}h</span>
-                            </div>
-                          )}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditModal(task, 'comments');
+                              }}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                color: task.commentCount > 0 ? 'var(--primary)' : 'var(--text-muted)',
+                                cursor: 'pointer',
+                                padding: '2px 4px',
+                                borderRadius: 4,
+                                fontSize: '0.74rem',
+                                fontWeight: 600
+                              }}
+                              title="Diskusi & Komentar Tugas"
+                            >
+                              <MessageSquare size={13} />
+                              <span>{task.commentCount || 0}</span>
+                            </button>
+                            {task.estimatedHours > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <Clock size={13} />
+                                <span>{task.estimatedHours}h</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         {/* Status Next Action Buttons */}
@@ -1239,78 +1394,171 @@ export default function TasksPage({ onlyMyTasks = false }) {
               </div>
             </div>
 
-            <form onSubmit={handleSaveEditTask}>
-              <div className="modal-body" style={{ padding: '20px 24px' }}>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                  gap: 24
-                }}>
-                  {/* Left Column: Core Task Scope */}
-                  <div>
-                    <div className="form-group" style={{ marginBottom: 16 }}>
-                      <label className="form-label" style={{ fontWeight: 600 }}>Judul Tugas *</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={editingTask.title}
-                        onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })}
-                        placeholder="Uraian pekerjaan tugas..."
-                        required
-                        style={{ fontSize: '0.9rem', fontWeight: 500 }}
-                      />
+            {/* Modal Tabs Navigation */}
+            <div style={{
+              display: 'flex',
+              borderBottom: '1px solid var(--border-color)',
+              padding: '0 24px',
+              background: 'rgba(255, 255, 255, 0.02)',
+              gap: 8
+            }}>
+              <button
+                type="button"
+                onClick={() => setModalTab('details')}
+                style={{
+                  padding: '12px 16px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: modalTab === 'details' ? '2px solid var(--primary)' : '2px solid transparent',
+                  color: modalTab === 'details' ? 'var(--primary)' : 'var(--text-secondary)',
+                  fontWeight: modalTab === 'details' ? 700 : 500,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Edit3 size={15} />
+                <span>Rincian Tugas</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModalTab('comments')}
+                style={{
+                  padding: '12px 16px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: modalTab === 'comments' ? '2px solid var(--primary)' : '2px solid transparent',
+                  color: modalTab === 'comments' ? 'var(--primary)' : 'var(--text-secondary)',
+                  fontWeight: modalTab === 'comments' ? 700 : 500,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <MessageSquare size={15} />
+                <span>Diskusi & Komentar</span>
+                {comments.length > 0 && (
+                  <span style={{
+                    background: 'var(--primary)',
+                    color: '#fff',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: 10
+                  }}>
+                    {comments.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModalTab('activities')}
+                style={{
+                  padding: '12px 16px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: modalTab === 'activities' ? '2px solid var(--primary)' : '2px solid transparent',
+                  color: modalTab === 'activities' ? 'var(--primary)' : 'var(--text-secondary)',
+                  fontWeight: modalTab === 'activities' ? 700 : 500,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <History size={15} />
+                <span>Riwayat Aktivitas</span>
+                {activities.length > 0 && (
+                  <span style={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: 'var(--text-muted)',
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    padding: '1px 6px',
+                    borderRadius: 10
+                  }}>
+                    {activities.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Tab 1: Task Details Form */}
+            {modalTab === 'details' && (
+              <form onSubmit={handleSaveEditTask}>
+                <div className="modal-body" style={{ padding: '20px 24px' }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                    gap: 24
+                  }}>
+                    {/* Left Column: Core Task Scope */}
+                    <div>
+                      <div className="form-group" style={{ marginBottom: 16 }}>
+                        <label className="form-label" style={{ fontWeight: 600 }}>Judul Tugas *</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={editingTask.title}
+                          onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })}
+                          placeholder="Uraian pekerjaan tugas..."
+                          required
+                          style={{ fontSize: '0.9rem', fontWeight: 500 }}
+                        />
+                      </div>
+
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label" style={{ fontWeight: 600 }}>Deskripsi Pekerjaan *</label>
+                        <textarea
+                          className="form-control"
+                          rows={6}
+                          value={editingTask.description}
+                          onChange={(e) => setEditingTask({ ...editingTask, description: e.target.value })}
+                          placeholder="Jelaskan kebutuhan teknis, acceptance criteria, atau catatan pengerjaan..."
+                          required
+                          style={{ fontSize: '0.85rem', lineHeight: 1.5 }}
+                        />
+                      </div>
                     </div>
 
-                    <div className="form-group" style={{ marginBottom: 16 }}>
-                      <label className="form-label" style={{ fontWeight: 600 }}>Proyek Terkait *</label>
-                      <Select2
-                        options={projectOptions}
-                        value={editingTask.projectId}
-                        onChange={(val) => {
-                          const p = projects.find(proj => proj.id === val);
-                          setEditingTask({ 
-                            ...editingTask, 
-                            projectId: val,
-                            projectName: p ? p.name : editingTask.projectName,
-                            projectCode: p ? p.code : editingTask.projectCode,
-                            projectColor: p ? p.color : editingTask.projectColor
-                          });
-                        }}
-                        placeholder="Pilih proyek..."
-                      />
-                    </div>
-
-                    <div className="form-group" style={{ marginBottom: 16 }}>
-                      <label className="form-label" style={{ fontWeight: 600 }}>Deskripsi & Rincian Pekerjaan</label>
-                      <textarea
-                        className="form-control"
-                        rows={7}
-                        value={editingTask.description}
-                        onChange={(e) => setEditingTask({ ...editingTask, description: e.target.value })}
-                        placeholder="Jelaskan kebutuhan teknis, kendala, kriteria selesai, atau solusi..."
-                        style={{ fontSize: '0.84rem', lineHeight: 1.5, resize: 'vertical' }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Right Column: Attributes, Classification & Schedule */}
-                  <div>
-                    <div style={{
-                      background: 'rgba(255, 255, 255, 0.02)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: 'var(--radius-md)',
-                      padding: 16,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 14
-                    }}>
+                    {/* Right Column: Parameters & Attributes */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                       <div className="form-group" style={{ margin: 0 }}>
-                        <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Penanggung Jawab (PIC)</label>
+                        <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Proyek Tujuan *</label>
                         <Select2
-                          options={[{ value: null, label: 'Belum Ditugaskan' }, ...memberOptions]}
+                          options={projectOptions}
+                          value={editingTask.projectId}
+                          onChange={(val) => {
+                            const p = projects.find(proj => proj.id === val);
+                            setEditingTask({ 
+                              ...editingTask, 
+                              projectId: val,
+                              projectName: p?.name,
+                              projectCode: p?.code,
+                              projectColor: p?.color
+                            });
+                          }}
+                          placeholder="Pilih proyek..."
+                        />
+                      </div>
+
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>PIC / Pelaksana Tugas</label>
+                        <Select2
+                          options={[{ value: null, label: 'Tanpa Assignee (Unassigned)' }, ...memberOptions]}
                           value={editingTask.assigneeId}
                           onChange={(val) => setEditingTask({ ...editingTask, assigneeId: val })}
-                          placeholder="Pilih PIC..."
+                          placeholder="Pilih pelaksana..."
                         />
                       </div>
 
@@ -1398,52 +1646,308 @@ export default function TasksPage({ onlyMyTasks = false }) {
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    handleDeleteTask(editingTask.id, editingTask.title);
-                    setShowEditModal(false);
-                  }}
-                  style={{ color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.08)' }}
-                >
-                  <Trash2 size={15} />
-                  <span>Hapus Tugas</span>
-                </button>
-
-                <div style={{ display: 'flex', gap: 10 }}>
+                <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    onClick={() => setShowEditModal(false)}
-                    disabled={savingEdit}
+                    onClick={() => {
+                      handleDeleteTask(editingTask.id, editingTask.title);
+                      setShowEditModal(false);
+                    }}
+                    style={{ color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.08)' }}
                   >
-                    Batal
+                    <Trash2 size={15} />
+                    <span>Hapus Tugas</span>
                   </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={savingEdit}
-                    style={{ minWidth: 150 }}
-                  >
-                    {savingEdit ? (
-                      <>
-                        <RefreshCw size={15} className="spin" />
-                        <span>Menyimpan...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckSquare size={15} />
-                        <span>Simpan Perubahan</span>
-                      </>
-                    )}
-                  </button>
+
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setShowEditModal(false)}
+                      disabled={savingEdit}
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={savingEdit}
+                      style={{ minWidth: 150 }}
+                    >
+                      {savingEdit ? (
+                        <>
+                          <RefreshCw size={15} className="spin" />
+                          <span>Menyimpan...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckSquare size={15} />
+                          <span>Simpan Perubahan</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+
+            {/* Tab 2: Comments & Team Discussion Feed */}
+            {modalTab === 'comments' && (
+              <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{
+                  maxHeight: 380,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  paddingRight: 6
+                }}>
+                  {loadingComments ? (
+                    <div style={{ textAlign: 'center', padding: '36px 0', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+                      <RefreshCw size={20} className="spin" style={{ marginBottom: 8 }} />
+                      <div>Memuat percakapan...</div>
+                    </div>
+                  ) : comments.length === 0 ? (
+                    <div style={{
+                      textAlign: 'center',
+                      padding: '40px 16px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px dashed var(--border-color)',
+                      color: 'var(--text-muted)'
+                    }}>
+                      <MessageSquare size={36} style={{ opacity: 0.3, marginBottom: 8 }} />
+                      <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>
+                        Belum ada komentar pada tugas ini
+                      </div>
+                      <div style={{ fontSize: '0.8rem', marginTop: 4 }}>
+                        Tuliskan catatan teknis, perkembangan tugas, atau instruksi kerja di bawah ini.
+                      </div>
+                    </div>
+                  ) : (
+                    comments.map((c) => (
+                      <div
+                        key={c.id}
+                        style={{
+                          background: 'var(--bg-card)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 'var(--radius-md)',
+                          padding: '14px 16px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 8,
+                          position: 'relative',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: '50%',
+                              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                              color: '#fff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 700,
+                              fontSize: '0.82rem',
+                              flexShrink: 0
+                            }}>
+                              {c.userName ? c.userName.charAt(0).toUpperCase() : 'U'}
+                            </div>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)' }}>
+                                  {c.userName}
+                                </span>
+                                <span className="badge badge-purple" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>
+                                  {c.userRole}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 1 }}>
+                                {formatRelativeTime(c.createdAt)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {c.isOwner && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteComment(c.id)}
+                              title="Hapus Komentar"
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: 'var(--text-muted)',
+                                cursor: 'pointer',
+                                padding: 6,
+                                borderRadius: 4,
+                                display: 'flex',
+                                alignItems: 'center',
+                                transition: 'color 0.15s ease'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+
+                        <div style={{
+                          fontSize: '0.86rem',
+                          color: 'var(--text-primary)',
+                          lineHeight: 1.5,
+                          whiteSpace: 'pre-wrap',
+                          paddingLeft: 42
+                        }}>
+                          {c.comment}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Input New Comment */}
+                <form onSubmit={handleAddComment} style={{
+                  borderTop: '1px solid var(--border-color)',
+                  paddingTop: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10
+                }}>
+                  <div style={{ position: 'relative' }}>
+                    <textarea
+                      className="form-control"
+                      rows={3}
+                      placeholder="Tulis tanggapan atau catatan kerja... (Tekan Ctrl+Enter untuk mengirim)"
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.ctrlKey && e.key === 'Enter') {
+                          handleAddComment(e);
+                        }
+                      }}
+                      style={{ fontSize: '0.86rem', resize: 'vertical' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      Mendukung baris baru (Shift+Enter) & kirim cepat (Ctrl+Enter)
+                    </span>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={submittingComment || !newComment.trim()}
+                      style={{ minWidth: 140 }}
+                    >
+                      {submittingComment ? (
+                        <>
+                          <RefreshCw size={15} className="spin" />
+                          <span>Mengirim...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send size={14} />
+                          <span>Kirim Komentar</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* Tab 3: Activities Timeline */}
+            {modalTab === 'activities' && (
+              <div style={{ padding: '20px 24px' }}>
+                <div style={{
+                  maxHeight: 460,
+                  overflowY: 'auto',
+                  paddingRight: 6
+                }}>
+                  {loadingActivities ? (
+                    <div style={{ textAlign: 'center', padding: '36px 0', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+                      <RefreshCw size={20} className="spin" style={{ marginBottom: 8 }} />
+                      <div>Memuat riwayat aktivitas...</div>
+                    </div>
+                  ) : activities.length === 0 ? (
+                    <div style={{
+                      textAlign: 'center',
+                      padding: '40px 16px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px dashed var(--border-color)',
+                      color: 'var(--text-muted)'
+                    }}>
+                      <History size={36} style={{ opacity: 0.3, marginBottom: 8 }} />
+                      <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>
+                        Belum ada aktivitas tercatat
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{
+                      position: 'relative',
+                      paddingLeft: 28,
+                      borderLeft: '2px solid var(--border-color)',
+                      marginLeft: 12,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 20
+                    }}>
+                      {activities.map((a) => {
+                        const isCreated = a.actionType === 'Created';
+                        const isStatus = a.actionType === 'StatusChanged';
+                        const isComment = a.actionType === 'CommentAdded';
+                        const dotColor = isCreated ? '#10b981' : isStatus ? '#6366f1' : isComment ? '#0ea5e9' : '#f59e0b';
+
+                        return (
+                          <div key={a.id} style={{ position: 'relative' }}>
+                            {/* Node Dot */}
+                            <div style={{
+                              position: 'absolute',
+                              left: -35,
+                              top: 2,
+                              width: 14,
+                              height: 14,
+                              borderRadius: '50%',
+                              background: dotColor,
+                              border: '2px solid var(--bg-surface)',
+                              boxShadow: `0 0 0 2px ${dotColor}40`
+                            }} />
+
+                            <div style={{
+                              background: 'var(--bg-card)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: 'var(--radius-md)',
+                              padding: '10px 14px',
+                              fontSize: '0.84rem'
+                            }}>
+                              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 3 }}>
+                                {a.description}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                <span>{formatRelativeTime(a.createdAt)}</span>
+                                {a.userName && (
+                                  <>
+                                    <span>•</span>
+                                    <span>oleh <strong>{a.userName}</strong></span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
-            </form>
+            )}
           </div>
         </div>
       )}

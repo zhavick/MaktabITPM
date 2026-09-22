@@ -114,6 +114,39 @@ namespace ProjectManagement.Api.DTOs
         public string? AssigneeAvatar { get; set; }
         public DateTime? DueDate { get; set; }
         public decimal EstimatedHours { get; set; }
+        public int CommentCount { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public class CreateTaskCommentDto
+    {
+        [Required]
+        public string Comment { get; set; } = string.Empty;
+    }
+
+    public class TaskCommentDto
+    {
+        public int Id { get; set; }
+        public int TaskId { get; set; }
+        public int UserId { get; set; }
+        public string UserName { get; set; } = string.Empty;
+        public string UserRole { get; set; } = string.Empty;
+        public string? UserAvatar { get; set; }
+        public string Comment { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+        public bool IsOwner { get; set; }
+    }
+
+    public class TaskActivityDto
+    {
+        public int Id { get; set; }
+        public int TaskId { get; set; }
+        public int? UserId { get; set; }
+        public string? UserName { get; set; }
+        public string? UserAvatar { get; set; }
+        public string ActionType { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
     }
 

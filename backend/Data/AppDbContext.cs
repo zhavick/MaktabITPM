@@ -15,6 +15,8 @@ namespace ProjectManagement.Api.Data
         public DbSet<Project> Projects => Set<Project>();
         public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
         public DbSet<TaskItem> Tasks => Set<TaskItem>();
+        public DbSet<TaskComment> TaskComments => Set<TaskComment>();
+        public DbSet<TaskActivity> TaskActivities => Set<TaskActivity>();
         public DbSet<Note> Notes => Set<Note>();
         public DbSet<Timesheet> Timesheets => Set<Timesheet>();
         public DbSet<TimesheetEntry> TimesheetEntries => Set<TimesheetEntry>();
@@ -69,6 +71,32 @@ namespace ProjectManagement.Api.Data
                 .HasOne(t => t.Assignee)
                 .WithMany()
                 .HasForeignKey(t => t.AssigneeId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // TaskComment
+            modelBuilder.Entity<TaskComment>()
+                .HasOne(tc => tc.Task)
+                .WithMany(t => t.Comments)
+                .HasForeignKey(tc => tc.TaskId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<TaskComment>()
+                .HasOne(tc => tc.User)
+                .WithMany()
+                .HasForeignKey(tc => tc.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // TaskActivity
+            modelBuilder.Entity<TaskActivity>()
+                .HasOne(ta => ta.Task)
+                .WithMany(t => t.Activities)
+                .HasForeignKey(ta => ta.TaskId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<TaskActivity>()
+                .HasOne(ta => ta.User)
+                .WithMany()
+                .HasForeignKey(ta => ta.UserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
             // Note

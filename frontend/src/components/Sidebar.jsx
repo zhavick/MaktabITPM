@@ -1,5 +1,5 @@
-import React from 'react';
-import { NavLink, useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { NavLink, useNavigate, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   CheckSquare, 
@@ -16,7 +16,9 @@ import {
   Settings,
   History,
   UserCheck,
-  Database
+  Database,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { confirmDialog } from '../utils/swal';
@@ -24,6 +26,16 @@ import { confirmDialog } from '../utils/swal';
 export default function Sidebar() {
   const { user, logout, isManager, isAdmin, isConsultant } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const isTasksActive = location.pathname === '/tasks' || location.pathname === '/my-tasks';
+  const [tasksMenuOpen, setTasksMenuOpen] = useState(isTasksActive);
+
+  useEffect(() => {
+    if (isTasksActive) {
+      setTasksMenuOpen(true);
+    }
+  }, [location.pathname, isTasksActive]);
 
   const handleLogout = async () => {
     const confirmed = await confirmDialog({
@@ -41,8 +53,15 @@ export default function Sidebar() {
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-    { name: 'My Tasks', path: '/my-tasks', icon: UserCheck },
-    { name: 'Semua Tugas', path: '/tasks', icon: CheckSquare },
+    { 
+      name: 'Manajemen Tugas', 
+      icon: CheckSquare,
+      isDropdown: true,
+      children: [
+        { name: 'Semua Tugas', path: '/tasks', icon: CheckSquare },
+        { name: 'My Tasks', path: '/my-tasks', icon: UserCheck }
+      ]
+    },
     { name: 'Catatan & Dokumen', path: '/notes', icon: FileText },
     { 
       name: isConsultant ? 'Upload Timesheet' : 'Timesheet Kerja', 
@@ -131,6 +150,84 @@ export default function Sidebar() {
       <nav style={{ flex: 1, padding: '16px 0', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
         {navItems.filter(item => !item.hide).map((item) => {
           const Icon = item.icon;
+
+          if (item.isDropdown) {
+            return (
+              <div key={item.name} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <button
+                  type="button"
+                  onClick={() => setTasksMenuOpen(prev => !prev)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '9px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    border: 'none',
+                    background: isTasksActive ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                    color: isTasksActive ? 'var(--primary)' : 'var(--text-secondary)',
+                    fontSize: '0.85rem',
+                    fontWeight: isTasksActive ? 700 : 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    width: '100%',
+                    textAlign: 'left'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <Icon size={17} color={isTasksActive ? 'var(--primary)' : 'currentColor'} />
+                    <span>{item.name}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', color: isTasksActive ? 'var(--primary)' : 'var(--text-muted)' }}>
+                    {tasksMenuOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                  </div>
+                </button>
+
+                {tasksMenuOpen && (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                    paddingLeft: 18,
+                    marginLeft: 12,
+                    borderLeft: '1.5px solid var(--border-color)',
+                    marginTop: 2,
+                    marginBottom: 4
+                  }}>
+                    {item.children.map((child) => {
+                      const ChildIcon = child.icon;
+                      return (
+                        <NavLink
+                          key={child.path}
+                          to={child.path}
+                          style={({ isActive }) => ({
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '7px 10px',
+                            borderRadius: 'var(--radius-md)',
+                            textDecoration: 'none',
+                            fontSize: '0.8rem',
+                            fontWeight: isActive ? 700 : 500,
+                            color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                            backgroundColor: isActive ? 'var(--primary)' : 'transparent',
+                            boxShadow: isActive ? '0 3px 10px rgba(99, 102, 241, 0.3)' : 'none',
+                            transition: 'all 0.15s ease'
+                          })}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <ChildIcon size={15} />
+                            <span>{child.name}</span>
+                          </div>
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           return (
             <NavLink
               key={item.path}
