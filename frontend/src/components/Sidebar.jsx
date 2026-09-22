@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, Link } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   CheckSquare, 
@@ -12,13 +12,17 @@ import {
   LogOut,
   FolderKanban,
   ShieldCheck,
-  Briefcase
+  Briefcase,
+  Settings,
+  History,
+  UserCheck,
+  Database
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { confirmDialog } from '../utils/swal';
 
 export default function Sidebar() {
-  const { user, logout, isManager, isConsultant } = useAuth();
+  const { user, logout, isManager, isAdmin, isConsultant } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -59,6 +63,27 @@ export default function Sidebar() {
       badge: 'Admin',
       hide: !isManager 
     },
+    { 
+      name: 'Master Data', 
+      path: '/master-data', 
+      icon: Database, 
+      badge: 'Admin',
+      hide: !isManager 
+    },
+    { 
+      name: 'Jejak Audit Trail', 
+      path: '/audit-trail', 
+      icon: History, 
+      badge: 'Log',
+      hide: !isManager 
+    },
+    { 
+      name: 'Konfigurasi Sistem', 
+      path: '/settings', 
+      icon: Settings, 
+      badge: 'Admin',
+      hide: !isAdmin 
+    },
   ];
 
   return (
@@ -77,7 +102,7 @@ export default function Sidebar() {
       padding: '24px 16px',
     }}>
       {/* Brand Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 8px 24px', borderBottom: '1px solid var(--border-color)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 8px 20px', borderBottom: '1px solid var(--border-color)' }}>
         <div style={{
           width: 40,
           height: 40,
@@ -102,7 +127,7 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation Links */}
-      <nav style={{ flex: 1, padding: '20px 0', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <nav style={{ flex: 1, padding: '16px 0', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
         {navItems.filter(item => !item.hide).map((item) => {
           const Icon = item.icon;
           return (
@@ -113,10 +138,10 @@ export default function Sidebar() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                padding: '10px 14px',
+                padding: '9px 12px',
                 borderRadius: 'var(--radius-md)',
                 textDecoration: 'none',
-                fontSize: '0.875rem',
+                fontSize: '0.85rem',
                 fontWeight: isActive ? 700 : 500,
                 color: isActive ? '#ffffff' : 'var(--text-secondary)',
                 backgroundColor: isActive ? 'var(--primary)' : 'transparent',
@@ -125,11 +150,11 @@ export default function Sidebar() {
               })}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Icon size={18} />
+                <Icon size={17} />
                 <span>{item.name}</span>
               </div>
               {item.badge && (
-                <span className="badge badge-purple" style={{ fontSize: '0.65rem' }}>
+                <span className="badge badge-purple" style={{ fontSize: '0.625rem', padding: '1px 6px' }}>
                   {item.badge}
                 </span>
               )}
@@ -141,52 +166,65 @@ export default function Sidebar() {
       {/* User Card & Logout */}
       <div style={{
         borderTop: '1px solid var(--border-color)',
-        paddingTop: 16,
+        paddingTop: 14,
         display: 'flex',
         flexDirection: 'column',
-        gap: 12
+        gap: 10
       }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '8px 10px',
-          background: 'var(--bg-card-solid)',
-          borderRadius: 'var(--radius-md)',
-          border: '1px solid var(--border-color)'
-        }}>
+        {/* Clickable user profile button */}
+        <Link
+          to="/profile"
+          title="Klik untuk ubah foto & profil Anda"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '8px 10px',
+            background: 'var(--bg-card-solid)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border-color)',
+            textDecoration: 'none',
+            transition: 'border-color 0.15s ease',
+          }}
+        >
           <div style={{
             width: 36,
             height: 36,
             borderRadius: '50%',
+            overflow: 'hidden',
             background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
             color: '#fff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontWeight: 'bold',
-            fontSize: '0.85rem'
+            fontSize: '0.85rem',
+            flexShrink: 0,
           }}>
-            {user?.fullName?.charAt(0) || 'U'}
+            {user?.avatarUrl ? (
+              <img src={user.avatarUrl} alt={user.fullName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              user?.fullName?.charAt(0) || 'U'
+            )}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '0.825rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-primary)' }}>
               {user?.fullName}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span className={`badge ${user?.employmentType === 'Consultant' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.65rem', padding: '1px 6px' }}>
+              <span className={`badge ${user?.employmentType === 'Consultant' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.625rem', padding: '1px 5px' }}>
                 {user?.role}
               </span>
             </div>
           </div>
-        </div>
+        </Link>
 
         <button
           onClick={handleLogout}
           className="btn btn-secondary btn-sm"
-          style={{ width: '100%', justifyContent: 'flex-start', color: 'var(--danger)' }}
+          style={{ width: '100%', justifyContent: 'flex-start', color: 'var(--danger)', fontSize: '0.8rem' }}
         >
-          <LogOut size={16} />
+          <LogOut size={15} />
           <span>Keluar Akun</span>
         </button>
       </div>

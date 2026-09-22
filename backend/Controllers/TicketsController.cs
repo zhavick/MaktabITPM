@@ -4,10 +4,13 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ProjectManagement.Api.Data;
 using ProjectManagement.Api.DTOs;
+using ProjectManagement.Api.Hubs;
 using ProjectManagement.Api.Models;
+using ProjectManagement.Api.Services;
 
 namespace ProjectManagement.Api.Controllers
 {
@@ -17,10 +20,14 @@ namespace ProjectManagement.Api.Controllers
     public class TicketsController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IHubContext<SyncHub> _hubContext;
+        private readonly IAuditService _auditService;
 
-        public TicketsController(AppDbContext context)
+        public TicketsController(AppDbContext context, IHubContext<SyncHub> hubContext, IAuditService auditService)
         {
             _context = context;
+            _hubContext = hubContext;
+            _auditService = auditService;
         }
 
         [HttpGet]
@@ -90,6 +97,8 @@ namespace ProjectManagement.Api.Controllers
 
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
             int.TryParse(userIdStr, out var currentUserId);
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name);
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role);
 
             var countThisYear = await _context.Tickets.CountAsync(t => t.CreatedAt.Year == DateTime.UtcNow.Year) + 1;
             var ticketNumber = $"TCK-{DateTime.UtcNow.Year}-{countThisYear:D4}";
@@ -101,6 +110,7 @@ namespace ProjectManagement.Api.Controllers
                 Title = dto.Title,
                 Description = dto.Description,
                 Severity = dto.Severity ?? "Medium",
+                Category = dto.Category,
                 Status = "Open",
                 ReportedByUserId = currentUserId,
                 AttachmentUrl = dto.AttachmentUrl,
@@ -109,6 +119,17 @@ namespace ProjectManagement.Api.Controllers
 
             _context.Tickets.Add(ticket);
             await _context.SaveChangesAsync();
+
+            await _auditService.LogAsync("TICKET_CREATED", "Tickets", $"Tiket insiden #{ticket.TicketNumber} '{ticket.Title}' dilaporkan.", "Warning", currentUserId, currentUserName, currentUserRole);
+
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new
+            {
+                Type = "TicketCreated",
+                TicketNumber = ticket.TicketNumber,
+                Title = ticket.Title,
+                Severity = ticket.Severity,
+                ReportedBy = currentUserName
+            });
 
             return Ok(new
             {
@@ -127,10 +148,10 @@ namespace ProjectManagement.Api.Controllers
 
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
             int.TryParse(userIdStr, out var currentUserId);
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name);
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role);
 
-            // If caretakerId not provided in body, current caretaker picks the ticket
             var targetCaretakerId = dto.CaretakerUserId ?? currentUserId;
-
             ticket.AssignedCaretakerId = targetCaretakerId;
             if (ticket.Status == "Open")
             {
@@ -150,6 +171,17 @@ namespace ProjectManagement.Api.Controllers
 
             await _context.SaveChangesAsync();
 
+            await _auditService.LogAsync("TICKET_ASSIGNED", "Tickets", $"Tiket #{ticket.TicketNumber} ditugaskan ke {caretakerUser?.FullName}.", "Info", currentUserId, currentUserName, currentUserRole);
+
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new
+            {
+                Type = "TicketUpdated",
+                TicketNumber = ticket.TicketNumber,
+                Status = ticket.Status,
+                AssignedTo = caretakerUser?.FullName,
+                Action = "Assigned"
+            });
+
             return Ok(new
             {
                 success = true,
@@ -167,6 +199,8 @@ namespace ProjectManagement.Api.Controllers
 
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
             int.TryParse(userIdStr, out var currentUserId);
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name);
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role);
 
             var oldStatus = ticket.Status;
             ticket.Status = dto.Status;
@@ -192,6 +226,17 @@ namespace ProjectManagement.Api.Controllers
 
             await _context.SaveChangesAsync();
 
+            await _auditService.LogAsync("TICKET_STATUS_CHANGED", "Tickets", $"Status tiket #{ticket.TicketNumber} diubah ke {ticket.Status}.", "Info", currentUserId, currentUserName, currentUserRole);
+
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new
+            {
+                Type = "TicketUpdated",
+                TicketNumber = ticket.TicketNumber,
+                Status = ticket.Status,
+                Action = "StatusChanged",
+                UpdatedBy = currentUserName
+            });
+
             return Ok(new { success = true, message = $"Status tiket berhasil diubah menjadi {ticket.Status}!", data = ticket });
         }
 
@@ -204,6 +249,8 @@ namespace ProjectManagement.Api.Controllers
 
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
             int.TryParse(userIdStr, out var currentUserId);
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name);
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role);
 
             var comment = new TicketComment
             {
@@ -227,6 +274,14 @@ namespace ProjectManagement.Api.Controllers
             _context.TicketComments.Add(comment);
             await _context.SaveChangesAsync();
 
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new
+            {
+                Type = "TicketUpdated",
+                TicketNumber = ticket.TicketNumber,
+                Action = "CommentAdded",
+                User = currentUserName
+            });
+
             return Ok(new { success = true, message = "Komentar berhasil ditambahkan!", data = comment });
         }
 
@@ -242,6 +297,7 @@ namespace ProjectManagement.Api.Controllers
                 Title = t.Title,
                 Description = t.Description,
                 Severity = t.Severity,
+                Category = t.Category,
                 Status = t.Status,
                 ReportedByUserId = t.ReportedByUserId,
                 ReportedByUserName = t.ReportedByUser != null ? t.ReportedByUser.FullName : "",

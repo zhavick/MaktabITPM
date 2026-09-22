@@ -33,6 +33,12 @@ namespace ProjectManagement.Api.Models
         [MaxLength(50)]
         public string Status { get; set; } = "Active"; // Active, OnHold, Completed
 
+        [MaxLength(50)]
+        public string ProjectType { get; set; } = "New Application";
+
+        [MaxLength(20)]
+        public string Color { get; set; } = "#4f46e5";
+
         [Column(TypeName = "decimal(15, 2)")]
         public decimal Budget { get; set; } = 0.00m;
 

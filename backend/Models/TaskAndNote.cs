@@ -13,7 +13,7 @@ namespace ProjectManagement.Api.Models
         public Project? Project { get; set; }
 
         [Required]
-        [MaxLength(200)]
+        [MaxLength(500)]
         public string Title { get; set; } = string.Empty;
 
         [Required]
@@ -26,6 +26,12 @@ namespace ProjectManagement.Api.Models
         [Required]
         [MaxLength(50)]
         public string Priority { get; set; } = "Medium"; // Low, Medium, High, Urgent
+
+        [MaxLength(100)]
+        public string? Category { get; set; }
+
+        [MaxLength(150)]
+        public string? Milestone { get; set; }
 
         public int? AssigneeId { get; set; }
         public User? Assignee { get; set; }

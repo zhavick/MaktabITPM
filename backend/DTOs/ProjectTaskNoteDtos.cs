@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http;
 
 namespace ProjectManagement.Api.DTOs
 {
@@ -25,6 +26,8 @@ namespace ProjectManagement.Api.DTOs
         public DateTime? EndDate { get; set; }
 
         public decimal Budget { get; set; } = 0.00m;
+        public string? ProjectType { get; set; } = "New Application";
+        public string? Color { get; set; } = "#4f46e5";
         public List<int>? MemberUserIds { get; set; }
     }
 
@@ -38,6 +41,8 @@ namespace ProjectManagement.Api.DTOs
         public DateTime StartDate { get; set; }
         public DateTime? EndDate { get; set; }
         public string Status { get; set; } = "Active";
+        public string ProjectType { get; set; } = "New Application";
+        public string Color { get; set; } = "#4f46e5";
         public decimal Budget { get; set; }
         public int TotalTasks { get; set; }
         public int CompletedTasks { get; set; }
@@ -62,7 +67,7 @@ namespace ProjectManagement.Api.DTOs
         public int ProjectId { get; set; }
 
         [Required]
-        [MaxLength(200)]
+        [MaxLength(500)]
         public string Title { get; set; } = string.Empty;
 
         [Required]
@@ -70,6 +75,8 @@ namespace ProjectManagement.Api.DTOs
 
         public string Status { get; set; } = "Todo"; // Todo, InProgress, InReview, Done
         public string Priority { get; set; } = "Medium"; // Low, Medium, High, Urgent
+        public string? Category { get; set; }
+        public string? Milestone { get; set; }
         public int? AssigneeId { get; set; }
         public DateTime? DueDate { get; set; }
         public decimal EstimatedHours { get; set; } = 0.00m;
@@ -81,16 +88,27 @@ namespace ProjectManagement.Api.DTOs
         public string Status { get; set; } = "Todo"; // Todo, InProgress, InReview, Done
     }
 
+    public class TaskExcelImportDto
+    {
+        public int? ProjectId { get; set; }
+
+        [Required]
+        public IFormFile File { get; set; } = null!;
+    }
+
     public class TaskResponseDto
     {
         public int Id { get; set; }
         public int ProjectId { get; set; }
         public string ProjectName { get; set; } = string.Empty;
         public string ProjectCode { get; set; } = string.Empty;
+        public string ProjectColor { get; set; } = "#4f46e5";
         public string Title { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
         public string Priority { get; set; } = string.Empty;
+        public string? Category { get; set; }
+        public string? Milestone { get; set; }
         public int? AssigneeId { get; set; }
         public string? AssigneeName { get; set; }
         public string? AssigneeAvatar { get; set; }

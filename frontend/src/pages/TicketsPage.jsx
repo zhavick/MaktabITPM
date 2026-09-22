@@ -18,10 +18,12 @@ import {
 import api from '../utils/api';
 import Select2 from '../components/Select2';
 import { useAuth } from '../context/AuthContext';
+import { useSync } from '../context/SyncContext';
 import { showToast, confirmDialog, errorAlert, successAlert } from '../utils/swal';
 
 export default function TicketsPage() {
   const { user, isCaretaker } = useAuth();
+  const { syncTick, lastEvent } = useSync();
   const [tickets, setTickets] = useState([]);
   const [projects, setProjects] = useState([]);
   const [caretakers, setCaretakers] = useState([]);
@@ -31,8 +33,13 @@ export default function TicketsPage() {
 
   // Filter state
   const [filterSeverity, setFilterSeverity] = useState('All');
+  const [filterCategory, setFilterCategory] = useState('All');
   const [filterProject, setFilterProject] = useState(null);
   const [search, setSearch] = useState('');
+
+  // Master Data state
+  const [masterCategories, setMasterCategories] = useState([]);
+  const [masterPriorities, setMasterPriorities] = useState([]);
 
   // Create Ticket Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -40,6 +47,7 @@ export default function TicketsPage() {
     projectId: null,
     title: '',
     description: '',
+    category: '',
     severity: 'Medium',
     attachmentUrl: ''
   });
@@ -52,17 +60,35 @@ export default function TicketsPage() {
     fetchData();
   }, []);
 
+  // Real-time automatic background sync when tickets are updated by other users
+  useEffect(() => {
+    if (syncTick > 0 && lastEvent) {
+      if (lastEvent.type?.startsWith('TICKET_') || lastEvent.type === 'TicketUpdated' || lastEvent.type === 'TicketCreated') {
+        api.get('/tickets').then((res) => {
+          if (res.data && res.data.data) {
+            setTickets(res.data.data);
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [syncTick]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [ticketRes, projRes, careRes] = await Promise.all([
+      const [ticketRes, projRes, careRes, masterRes] = await Promise.all([
         api.get('/tickets'),
         api.get('/projects'),
-        api.get('/members/caretakers')
+        api.get('/members/caretakers'),
+        api.get('/master-data?isActive=true')
       ]);
       setTickets(ticketRes.data.data || []);
       setProjects(projRes.data.data || []);
       setCaretakers(careRes.data.data || []);
+
+      const masterItems = masterRes.data.data || [];
+      setMasterCategories(masterItems.filter(i => i.type === 'Category'));
+      setMasterPriorities(masterItems.filter(i => i.type === 'Priority'));
 
       if (projRes.data.data?.length > 0 && !newTicket.projectId) {
         setNewTicket(prev => ({ ...prev, projectId: projRes.data.data[0].id }));
@@ -90,6 +116,7 @@ export default function TicketsPage() {
           projectId: projects[0]?.id || null,
           title: '',
           description: '',
+          category: '',
           severity: 'Medium',
           attachmentUrl: ''
         });
@@ -195,6 +222,7 @@ export default function TicketsPage() {
     if (activeTab === 'open_pool' && t.assignedCaretakerId !== null) return false;
     if (activeTab === 'my_assigned' && t.assignedCaretakerId !== user?.id) return false;
     if (filterSeverity !== 'All' && t.severity !== filterSeverity) return false;
+    if (filterCategory !== 'All' && t.category !== filterCategory) return false;
     if (filterProject && t.projectId !== filterProject) return false;
     if (search && !t.title.toLowerCase().includes(search.toLowerCase()) && !t.ticketNumber.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -205,6 +233,30 @@ export default function TicketsPage() {
     label: p.name,
     badge: p.code
   }));
+
+  const categoryOptions = [
+    { value: '', label: 'Tanpa Kategori' },
+    ...masterCategories.map(c => ({
+      value: c.name,
+      label: c.name,
+      badge: c.code,
+      color: c.badgeColor
+    }))
+  ];
+
+  const severityOptions = masterPriorities.length > 0
+    ? masterPriorities.map(p => ({
+        value: p.name,
+        label: `${p.name} - ${p.description || 'Prioritas'}`,
+        badge: p.code,
+        color: p.badgeColor
+      }))
+    : [
+        { value: 'Low', label: 'Low (Minor, tidak menghambat operasional)' },
+        { value: 'Medium', label: 'Medium (Kendala fungsional non-kritis)' },
+        { value: 'High', label: 'High (Menghambat deliverable utama proyek)' },
+        { value: 'Critical', label: 'Critical (Sistem down / error fatal database)' },
+      ];
 
   const caretakerOptions = caretakers.map(c => ({
     value: c.id,
@@ -314,7 +366,7 @@ export default function TicketsPage() {
           <span>Filter:</span>
         </div>
 
-        <div style={{ width: 240 }}>
+        <div style={{ width: 200 }}>
           <Select2
             options={[{ value: null, label: 'Semua Proyek' }, ...projectOptions]}
             value={filterProject}
@@ -323,7 +375,16 @@ export default function TicketsPage() {
           />
         </div>
 
-        <div style={{ width: 200 }}>
+        <div style={{ width: 180 }}>
+          <Select2
+            options={[{ value: 'All', label: 'Semua Kategori' }, ...categoryOptions.filter(c => c.value)]}
+            value={filterCategory}
+            onChange={(val) => setFilterCategory(val)}
+            placeholder="Kategori..."
+          />
+        </div>
+
+        <div style={{ width: 190 }}>
           <Select2
             options={[
               { value: 'All', label: 'Semua Keparahan' },
@@ -337,7 +398,7 @@ export default function TicketsPage() {
           />
         </div>
 
-        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 180 }}>
           <Search size={16} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
           <input
             type="text"
@@ -382,8 +443,15 @@ export default function TicketsPage() {
                       </strong>
                     </td>
                     <td>
-                      <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{t.title}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{t.title}</span>
+                        {t.category && (
+                          <span className="badge badge-secondary" style={{ fontSize: '0.65rem', padding: '1px 6px', background: 'rgba(99, 102, 241, 0.1)', color: 'var(--primary)' }}>
+                            {t.category}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
                         {t.description}
                       </div>
                     </td>
@@ -458,10 +526,16 @@ export default function TicketsPage() {
 
             <div className="modal-body">
               {/* Meta information row */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20, padding: 14, background: 'var(--bg-card-solid)', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20, padding: 14, background: 'var(--bg-card-solid)', borderRadius: 'var(--radius-md)' }}>
                 <div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Proyek:</div>
                   <strong style={{ fontSize: '0.85rem' }}>{selectedTicket.projectName}</strong>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Kategori:</div>
+                  <span className="badge badge-secondary" style={{ fontSize: '0.75rem' }}>
+                    {selectedTicket.category || 'Umum'}
+                  </span>
                 </div>
                 <div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Keparahan:</div>
@@ -621,18 +695,25 @@ export default function TicketsPage() {
                   />
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Tingkat Keparahan (Severity)</label>
-                  <Select2
-                    options={[
-                      { value: 'Low', label: 'Low (Minor, tidak menghambat operasional)' },
-                      { value: 'Medium', label: 'Medium (Kendala fungsional non-kritis)' },
-                      { value: 'High', label: 'High (Menghambat deliverable utama proyek)' },
-                      { value: 'Critical', label: 'Critical (Sistem down / error fatal database)' },
-                    ]}
-                    value={newTicket.severity}
-                    onChange={(val) => setNewTicket({ ...newTicket, severity: val })}
-                  />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div className="form-group">
+                    <label className="form-label">Kategori Masalah (Master Data)</label>
+                    <Select2
+                      options={categoryOptions}
+                      value={newTicket.category}
+                      onChange={(val) => setNewTicket({ ...newTicket, category: val })}
+                      placeholder="Pilih kategori kendala..."
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Tingkat Keparahan (Severity)</label>
+                    <Select2
+                      options={severityOptions}
+                      value={newTicket.severity}
+                      onChange={(val) => setNewTicket({ ...newTicket, severity: val })}
+                    />
+                  </div>
                 </div>
 
                 <div className="form-group">

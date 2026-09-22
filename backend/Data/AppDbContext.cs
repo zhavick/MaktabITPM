@@ -21,6 +21,9 @@ namespace ProjectManagement.Api.Data
         public DbSet<Attendance> Attendances => Set<Attendance>();
         public DbSet<Ticket> Tickets => Set<Ticket>();
         public DbSet<TicketComment> TicketComments => Set<TicketComment>();
+        public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+        public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
+        public DbSet<MasterDataItem> MasterDataItems => Set<MasterDataItem>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -420,6 +423,59 @@ namespace ProjectManagement.Api.Data
                 LocationNotes = "Kantor Pusat Jakarta Lt. 8"
             });
 
+            context.SaveChanges();
+            SeedMasterData(context);
+        }
+
+        public static void SeedMasterData(AppDbContext context)
+        {
+            if (context.MasterDataItems.Any()) return;
+
+            var masterList = new List<MasterDataItem>
+            {
+                // Kategori (Category)
+                new MasterDataItem { Type = "Category", Code = "ENHANCEMENT", Name = "Enhancement", Description = "Pengembangan dan penambahan fitur baru pada sistem", BadgeColor = "#6366f1", SortOrder = 1 },
+                new MasterDataItem { Type = "Category", Code = "NEW_APPLICATION", Name = "New Application", Description = "Pembangunan aplikasi baru dari awal", BadgeColor = "#3b82f6", SortOrder = 2 },
+                new MasterDataItem { Type = "Category", Code = "BUG", Name = "Bug Fixing", Description = "Perbaikan kendala atau galat fungsional sistem", BadgeColor = "#ef4444", SortOrder = 3 },
+                new MasterDataItem { Type = "Category", Code = "MAINTENANCE", Name = "Maintenance", Description = "Pemeliharaan rutin, refactoring, dan optimasi", BadgeColor = "#f59e0b", SortOrder = 4 },
+                new MasterDataItem { Type = "Category", Code = "MIGRATION", Name = "Migration", Description = "Migrasi data, API, atau platform arsitektur", BadgeColor = "#8b5cf6", SortOrder = 5 },
+                new MasterDataItem { Type = "Category", Code = "DOKUMEN", Name = "Dokumentasi", Description = "Pembuatan dokumen BRD, FSD, TSD, dan panduan", BadgeColor = "#10b981", SortOrder = 6 },
+                new MasterDataItem { Type = "Category", Code = "DATABASE", Name = "Database", Description = "Skema database, query tuning, dan indexing", BadgeColor = "#06b6d4", SortOrder = 7 },
+                new MasterDataItem { Type = "Category", Code = "BACKEND", Name = "Backend", Description = "Pengembangan REST API dan logika bisnis", BadgeColor = "#ec4899", SortOrder = 8 },
+                new MasterDataItem { Type = "Category", Code = "FRONTEND", Name = "Frontend", Description = "Antarmuka pengguna, komponen, dan interaktivitas", BadgeColor = "#14b8a6", SortOrder = 9 },
+                new MasterDataItem { Type = "Category", Code = "TESTING", Name = "Testing & QA", Description = "Pengujian unit, integrasi, dan UAT", BadgeColor = "#84cc16", SortOrder = 10 },
+
+                // Prioritas (Priority)
+                new MasterDataItem { Type = "Priority", Code = "CRITICAL", Name = "Critical", Description = "Dampak fatal atau blocker produksi", BadgeColor = "#ef4444", SortOrder = 1 },
+                new MasterDataItem { Type = "Priority", Code = "HIGH", Name = "High", Description = "Prioritas tinggi yang perlu segera ditindaklanjuti", BadgeColor = "#f97316", SortOrder = 2 },
+                new MasterDataItem { Type = "Priority", Code = "MEDIUM", Name = "Medium", Description = "Prioritas normal dalam alur kerja reguler", BadgeColor = "#3b82f6", SortOrder = 3 },
+                new MasterDataItem { Type = "Priority", Code = "LOW", Name = "Low", Description = "Prioritas rendah / perbaikan minor", BadgeColor = "#64748b", SortOrder = 4 },
+
+                // Milestone SDLC
+                new MasterDataItem { Type = "Milestone", Code = "M1-ANALYSIS", Name = "Inisiasi & Analisis Kebutuhan", Description = "Tahap penelaahan ruang lingkup dan spesifikasi BRD", BadgeColor = "#6366f1", SortOrder = 1 },
+                new MasterDataItem { Type = "Milestone", Code = "M2-DESIGN", Name = "Perancangan FSD & TSD", Description = "Penyusunan arsitektur sistem dan desain API", BadgeColor = "#8b5cf6", SortOrder = 2 },
+                new MasterDataItem { Type = "Milestone", Code = "M3-DEV", Name = "Pengembangan & Integrasi API", Description = "Tahap coding modul backend dan frontend", BadgeColor = "#3b82f6", SortOrder = 3 },
+                new MasterDataItem { Type = "Milestone", Code = "M4-QA", Name = "Pengujian QA & Security", Description = "Verifikasi pengujian sistem dan uji penetrasi", BadgeColor = "#f59e0b", SortOrder = 4 },
+                new MasterDataItem { Type = "Milestone", Code = "M5-UAT", Name = "User Acceptance Testing (UAT)", Description = "Uji coba dan penandatanganan BA UAT oleh klien", BadgeColor = "#10b981", SortOrder = 5 },
+                new MasterDataItem { Type = "Milestone", Code = "M6-GOLIVE", Name = "Deployment & Go-Live", Description = "Peluncuran resmi ke lingkungan produksi", BadgeColor = "#06b6d4", SortOrder = 6 },
+
+                // Jenis User (User Types / Roles)
+                new MasterDataItem { Type = "UserType", Code = "ADMIN", Name = "System Administrator", Description = "Akses administratif penuh ke seluruh modul sistem", BadgeColor = "#ef4444", SortOrder = 1 },
+                new MasterDataItem { Type = "UserType", Code = "PM", Name = "Project Manager", Description = "Pengelolaan proyek, penugasan tugas, review timesheet", BadgeColor = "#8b5cf6", SortOrder = 2 },
+                new MasterDataItem { Type = "UserType", Code = "CARETAKER", Name = "Caretaker Lead", Description = "Pemelihara stabilitas aplikasi dan tim resolver tiket", BadgeColor = "#f59e0b", SortOrder = 3 },
+                new MasterDataItem { Type = "UserType", Code = "EMPLOYEE", Name = "Internal Employee", Description = "Karyawan teknis internal dengan pencatatan log harian", BadgeColor = "#3b82f6", SortOrder = 4 },
+                new MasterDataItem { Type = "UserType", Code = "CONSULTANT", Name = "External Consultant", Description = "Konsultan mitra spesialis dengan timesheet bulanan", BadgeColor = "#10b981", SortOrder = 5 },
+
+                // Tipe Project (Project Types)
+                new MasterDataItem { Type = "ProjectType", Code = "NEW_APP", Name = "New Application Development", Description = "Pembangunan sistem aplikasi baru dari tahap inisiasi", BadgeColor = "#3b82f6", SortOrder = 1 },
+                new MasterDataItem { Type = "ProjectType", Code = "ENHANCE", Name = "Enhancement & Change Request", Description = "Penambahan kapabilitas fitur baru pada sistem yang berjalan", BadgeColor = "#6366f1", SortOrder = 2 },
+                new MasterDataItem { Type = "ProjectType", Code = "MANAGE_SVC", Name = "Managed Service & Support", Description = "Layanan pemeliharaan operasional berkesinambungan", BadgeColor = "#10b981", SortOrder = 3 },
+                new MasterDataItem { Type = "ProjectType", Code = "INTEGRATION", Name = "API & System Integration", Description = "Koneksi middleware, pertukaran data, dan integrasi API pihak ketiga", BadgeColor = "#f59e0b", SortOrder = 4 },
+                new MasterDataItem { Type = "ProjectType", Code = "CLOUD_INFRA", Name = "Cloud & Infrastructure Modernization", Description = "Migrasi cloud, dockerisasi, dan optimasi arsitektur DevOps", BadgeColor = "#06b6d4", SortOrder = 5 },
+                new MasterDataItem { Type = "ProjectType", Code = "RND", Name = "Research & Prototyping (R&D)", Description = "Riset eksploratif, PoC inovasi, dan teknologi baru", BadgeColor = "#ec4899", SortOrder = 6 }
+            };
+
+            context.MasterDataItems.AddRange(masterList);
             context.SaveChanges();
         }
     }

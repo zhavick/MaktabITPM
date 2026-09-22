@@ -41,6 +41,8 @@ namespace ProjectManagement.Api.Controllers
                     StartDate = p.StartDate,
                     EndDate = p.EndDate,
                     Status = p.Status,
+                    ProjectType = p.ProjectType ?? "New Application",
+                    Color = p.Color ?? "#4f46e5",
                     Budget = p.Budget,
                     TotalTasks = p.Tasks.Count,
                     CompletedTasks = p.Tasks.Count(t => t.Status == "Done"),
@@ -83,6 +85,8 @@ namespace ProjectManagement.Api.Controllers
                 StartDate = p.StartDate,
                 EndDate = p.EndDate,
                 Status = p.Status,
+                ProjectType = p.ProjectType ?? "New Application",
+                Color = p.Color ?? "#4f46e5",
                 Budget = p.Budget,
                 TotalTasks = p.Tasks.Count,
                 CompletedTasks = p.Tasks.Count(t => t.Status == "Done"),
@@ -121,6 +125,8 @@ namespace ProjectManagement.Api.Controllers
                 StartDate = dto.StartDate,
                 EndDate = dto.EndDate,
                 Budget = dto.Budget,
+                ProjectType = !string.IsNullOrWhiteSpace(dto.ProjectType) ? dto.ProjectType : "New Application",
+                Color = !string.IsNullOrWhiteSpace(dto.Color) ? dto.Color : "#4f46e5",
                 CreatedByUserId = currentUserId,
                 CreatedAt = DateTime.UtcNow
             };
@@ -144,6 +150,62 @@ namespace ProjectManagement.Api.Controllers
             }
 
             return Ok(new { success = true, message = "Proyek baru berhasil dibuat!", data = project });
+        }
+
+        [HttpPut("{id}")]
+        [Authorize(Roles = "Admin,ProjectManager")]
+        public async Task<IActionResult> Update(int id, [FromBody] CreateProjectDto dto)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var project = await _context.Projects
+                .Include(p => p.Members)
+                .FirstOrDefaultAsync(p => p.Id == id);
+
+            if (project == null)
+                return NotFound(new { success = false, message = "Proyek tidak ditemukan." });
+
+            project.Name = dto.Name;
+            project.Code = dto.Code.ToUpper();
+            project.Description = dto.Description;
+            project.ClientName = dto.ClientName;
+            project.StartDate = dto.StartDate;
+            project.EndDate = dto.EndDate;
+            project.Budget = dto.Budget;
+            if (!string.IsNullOrWhiteSpace(dto.ProjectType)) project.ProjectType = dto.ProjectType;
+            if (!string.IsNullOrWhiteSpace(dto.Color)) project.Color = dto.Color;
+
+            if (dto.MemberUserIds != null)
+            {
+                _context.ProjectMembers.RemoveRange(project.Members);
+                foreach (var mId in dto.MemberUserIds.Distinct())
+                {
+                    _context.ProjectMembers.Add(new ProjectMember
+                    {
+                        ProjectId = project.Id,
+                        UserId = mId,
+                        RoleInProject = "Member",
+                        JoinedAt = DateTime.UtcNow
+                    });
+                }
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(new { success = true, message = "Proyek berhasil diperbarui!", data = project });
+        }
+
+        [HttpDelete("{id}")]
+        [Authorize(Roles = "Admin,ProjectManager")]
+        public async Task<IActionResult> Delete(int id)
+        {
+            var project = await _context.Projects.FindAsync(id);
+            if (project == null)
+                return NotFound(new { success = false, message = "Proyek tidak ditemukan." });
+
+            _context.Projects.Remove(project);
+            await _context.SaveChangesAsync();
+            return Ok(new { success = true, message = "Proyek berhasil dihapus!" });
         }
     }
 }

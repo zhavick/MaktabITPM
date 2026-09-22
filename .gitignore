@@ -1,8 +1,12 @@
 # Build and binary folders
-bin/
-obj/
+[Bb]in/
+[Oo]bj/
+**/[Bb]in/
+**/[Oo]bj/
 node_modules/
+**/node_modules/
 dist/
+**/dist/
 .vscode/
 .idea/
 *.user
@@ -11,3 +15,9 @@ dist/
 uploads/
 Uploads/
 mysql_data/
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+project_management.db

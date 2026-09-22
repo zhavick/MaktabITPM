@@ -56,6 +56,9 @@ namespace ProjectManagement.Api.Models
         [MaxLength(50)]
         public string Severity { get; set; } = "Medium"; // Low, Medium, High, Critical
 
+        [MaxLength(100)]
+        public string? Category { get; set; }
+
         [Required]
         [MaxLength(50)]
         public string Status { get; set; } = "Open"; // Open, InProgress, InReview, Resolved, Closed

@@ -11,14 +11,6 @@
 **Spec:** [2026-09-21-project-management-app-design.md](file:///c:/TEMP/VSCODE/ProjectManagement/docs/superpowers/specs/2026-09-21-project-management-app-design.md)
 
 ## Global Constraints
-
-- Backend framework: ASP.NET Core 8 Web API (`C# 12`)
-- Database: MySQL 8.0 via Docker Compose (Port 3306)
-- Frontend: Vite + ReactJS SPA with modern Vanilla CSS design system
-- UI Plugins: SweetAlert2 (dialogs/toasts) and Select2 (searchable selects)
-- Authentication: JWT Bearer with Claims (UserId, Email, Role, EmploymentType, OnboardingCompleted)
-- Roles: `Admin`, `ProjectManager`, `Caretaker`, `InternalEmployee`, `Consultant`
-- Timesheet Dual Mode: Consultant uploads monthly Excel/CSV; Internal logs continuous/daily entries
 - Ticketing: Open ticket pool for incident reporting with Caretaker assignment workflow
 
 ---

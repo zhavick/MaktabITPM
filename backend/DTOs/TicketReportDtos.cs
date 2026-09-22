@@ -19,6 +19,8 @@ namespace ProjectManagement.Api.DTOs
         [Required]
         public string Severity { get; set; } = "Medium"; // Low, Medium, High, Critical
 
+        public string? Category { get; set; }
+
         public string? AttachmentUrl { get; set; }
     }
 
@@ -55,6 +57,7 @@ namespace ProjectManagement.Api.DTOs
         public string Title { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public string Severity { get; set; } = string.Empty;
+        public string? Category { get; set; }
         public string Status { get; set; } = string.Empty;
         public int ReportedByUserId { get; set; }
         public string ReportedByUserName { get; set; } = string.Empty;

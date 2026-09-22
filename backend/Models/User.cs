@@ -42,6 +42,17 @@ namespace ProjectManagement.Api.Models
         [MaxLength(255)]
         public string? AvatarUrl { get; set; }
 
+        [MaxLength(255)]
+        public string? CoverUrl { get; set; }
+
+        [MaxLength(50)]
+        public string? PhoneNumber { get; set; }
+
+        public string? Bio { get; set; }
+
+        [MaxLength(150)]
+        public string? Location { get; set; }
+
         public bool OnboardingCompleted { get; set; } = false;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
