@@ -172,6 +172,41 @@ namespace ProjectManagement.Api.Controllers
             return Ok(new { success = true, message = "Status tugas berhasil diperbarui!", data = task });
         }
 
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetById(int id)
+        {
+            var task = await _context.Tasks
+                .Include(t => t.Project)
+                .Include(t => t.Assignee)
+                .FirstOrDefaultAsync(t => t.Id == id);
+
+            if (task == null)
+                return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
+
+            var responseDto = new TaskResponseDto
+            {
+                Id = task.Id,
+                ProjectId = task.ProjectId,
+                ProjectName = task.Project != null ? task.Project.Name : "",
+                ProjectCode = task.Project != null ? task.Project.Code : "",
+                ProjectColor = task.Project != null ? task.Project.Color : "#4f46e5",
+                Title = task.Title,
+                Description = task.Description,
+                Status = task.Status,
+                Priority = task.Priority,
+                Category = task.Category,
+                Milestone = task.Milestone,
+                AssigneeId = task.AssigneeId,
+                AssigneeName = task.Assignee != null ? task.Assignee.FullName : null,
+                AssigneeAvatar = task.Assignee != null ? task.Assignee.AvatarUrl : null,
+                DueDate = task.DueDate,
+                EstimatedHours = task.EstimatedHours,
+                CreatedAt = task.CreatedAt
+            };
+
+            return Ok(new { success = true, data = responseDto });
+        }
+
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(int id, [FromBody] CreateTaskDto dto)
         {
@@ -184,17 +219,49 @@ namespace ProjectManagement.Api.Controllers
             task.ProjectId = dto.ProjectId;
             task.Status = dto.Status;
             task.Priority = dto.Priority;
+            task.Category = dto.Category;
+            task.Milestone = dto.Milestone;
             task.AssigneeId = dto.AssigneeId;
             task.DueDate = dto.DueDate;
             task.EstimatedHours = dto.EstimatedHours;
 
             await _context.SaveChangesAsync();
 
+            var project = await _context.Projects.FindAsync(task.ProjectId);
+            var assignee = task.AssigneeId.HasValue ? await _context.Users.FindAsync(task.AssigneeId.Value) : null;
+
+            var responseDto = new TaskResponseDto
+            {
+                Id = task.Id,
+                ProjectId = task.ProjectId,
+                ProjectName = project?.Name ?? "",
+                ProjectCode = project?.Code ?? "",
+                ProjectColor = project?.Color ?? "#4f46e5",
+                Title = task.Title,
+                Description = task.Description,
+                Status = task.Status,
+                Priority = task.Priority,
+                Category = task.Category,
+                Milestone = task.Milestone,
+                AssigneeId = task.AssigneeId,
+                AssigneeName = assignee?.FullName,
+                AssigneeAvatar = assignee?.AvatarUrl,
+                DueDate = task.DueDate,
+                EstimatedHours = task.EstimatedHours,
+                CreatedAt = task.CreatedAt
+            };
+
             var currentUserName = User.FindFirstValue(ClaimTypes.Name);
             await _auditService.LogAsync("TASK_UPDATED", "Tasks", $"Tugas '{task.Title}' diperbarui.", "Info", null, currentUserName);
-            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new { Type = "TaskUpdated", TaskId = task.Id, Title = task.Title, Action = "Updated" });
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new { 
+                Type = "TaskUpdated", 
+                TaskId = task.Id, 
+                Title = task.Title, 
+                Status = task.Status,
+                Action = "Updated" 
+            });
 
-            return Ok(new { success = true, message = "Tugas berhasil diperbarui!", data = task });
+            return Ok(new { success = true, message = "Tugas berhasil diperbarui!", data = responseDto });
         }
 
         [HttpDelete("{id}")]

@@ -20,7 +20,9 @@ import {
   X,
   Trash2,
   FileText,
-  ChevronDown
+  ChevronDown,
+  Edit3,
+  Flag
 } from 'lucide-react';
 import api from '../utils/api';
 import Select2 from '../components/Select2';
@@ -48,6 +50,9 @@ export default function TasksPage() {
   const [exporting, setExporting] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const [newTask, setNewTask] = useState({
     projectId: null,
@@ -248,6 +253,63 @@ export default function TasksPage() {
       showToast('Gagal mengekspor data tugas', 'error');
     } finally {
       setExporting(false);
+    }
+  };
+
+  const openEditModal = (task) => {
+    setEditingTask({
+      id: task.id,
+      projectId: task.projectId,
+      projectName: task.projectName,
+      projectCode: task.projectCode,
+      projectColor: task.projectColor,
+      title: task.title,
+      description: task.description || '',
+      status: task.status || 'Todo',
+      priority: task.priority || 'Medium',
+      category: task.category || '',
+      milestone: task.milestone || '',
+      assigneeId: task.assigneeId || null,
+      dueDate: task.dueDate ? task.dueDate.slice(0, 10) : '',
+      estimatedHours: task.estimatedHours || 0,
+      createdAt: task.createdAt
+    });
+    setShowEditModal(true);
+  };
+
+  const handleSaveEditTask = async (e) => {
+    e.preventDefault();
+    if (!editingTask || !editingTask.id) return;
+    if (!editingTask.projectId) {
+      errorAlert('Pilih Proyek', 'Silakan pilih proyek tujuan.');
+      return;
+    }
+    try {
+      setSavingEdit(true);
+      const payload = {
+        projectId: editingTask.projectId,
+        title: editingTask.title,
+        description: editingTask.description,
+        status: editingTask.status,
+        priority: editingTask.priority,
+        category: editingTask.category || null,
+        milestone: editingTask.milestone || null,
+        assigneeId: editingTask.assigneeId || null,
+        dueDate: editingTask.dueDate ? new Date(editingTask.dueDate).toISOString() : null,
+        estimatedHours: parseFloat(editingTask.estimatedHours) || 0
+      };
+
+      const res = await api.put(`/tasks/${editingTask.id}`, payload);
+      if (res.data.success) {
+        showToast('Tugas berhasil diperbarui!');
+        setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...res.data.data } : t));
+        setShowEditModal(false);
+        setEditingTask(null);
+      }
+    } catch (err) {
+      errorAlert('Gagal Memperbarui', err.response?.data?.message || 'Terjadi kesalahan saat memperbarui data tugas.');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -695,8 +757,22 @@ export default function TasksPage() {
                         {idx + 1}
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem', marginBottom: 2 }}>
-                          {task.title}
+                        <div 
+                          onClick={() => openEditModal(task)}
+                          style={{ 
+                            fontWeight: 600, 
+                            color: 'var(--text-primary)', 
+                            fontSize: '0.9rem', 
+                            marginBottom: 2,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6
+                          }}
+                          title="Klik untuk melihat detail & edit tugas"
+                        >
+                          <span style={{ textDecoration: 'none' }}>{task.title}</span>
+                          <Edit3 size={13} style={{ opacity: 0.5, color: 'var(--primary)', flexShrink: 0 }} />
                         </div>
                         {task.description && (
                           <div style={{
@@ -830,6 +906,15 @@ export default function TasksPage() {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => openEditModal(task)}
+                            title="Detail & Edit Tugas"
+                            style={{ padding: '4px 8px', color: 'var(--primary)' }}
+                          >
+                            <Edit3 size={13} />
+                          </button>
                           {task.status !== 'Done' && (
                             <button
                               type="button"
@@ -911,12 +996,46 @@ export default function TasksPage() {
                             <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: task.projectColor || '#6366f1' }}></span>
                             {task.projectCode}
                           </span>
-                          <span className={`badge ${priorityBadgeClass(task.priority)}`}>
-                            {task.priority}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span className={`badge ${priorityBadgeClass(task.priority)}`}>
+                              {task.priority}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditModal(task);
+                              }}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--text-muted)',
+                                cursor: 'pointer',
+                                padding: 2,
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: 4
+                              }}
+                              title="Detail & Edit Tugas"
+                              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--primary)'}
+                              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+                            >
+                              <Edit3 size={13} />
+                            </button>
+                          </div>
                         </div>
 
-                        <h4 style={{ fontSize: '0.925rem', fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                        <h4 
+                          onClick={() => openEditModal(task)}
+                          style={{ 
+                            fontSize: '0.925rem', 
+                            fontWeight: 700, 
+                            marginBottom: 6, 
+                            color: 'var(--text-primary)',
+                            cursor: 'pointer' 
+                          }}
+                          title="Klik untuk melihat detail & edit tugas"
+                        >
                           {task.title}
                         </h4>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.4 }}>
@@ -1006,6 +1125,306 @@ export default function TasksPage() {
               </div>
             );
           })}
+        </div>
+      )}
+      {/* Edit & Detail Task Modal */}
+      {showEditModal && editingTask && (
+        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
+          <div 
+            className="modal-content" 
+            style={{ maxWidth: 840, width: '95%', maxHeight: '92vh', overflowY: 'auto' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 'var(--radius-md)',
+                  background: `${editingTask.projectColor || '#6366f1'}20`,
+                  color: editingTask.projectColor || '#6366f1',
+                  border: `1px solid ${editingTask.projectColor || '#6366f1'}50`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <CheckSquare size={20} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                      Detail & Edit Tugas
+                    </h3>
+                    <span style={{ 
+                      fontSize: '0.72rem', 
+                      fontWeight: 700, 
+                      padding: '2px 8px', 
+                      borderRadius: 4, 
+                      background: 'rgba(255,255,255,0.08)', 
+                      color: 'var(--text-muted)' 
+                    }}>
+                      #TSK-{editingTask.id}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                    Proyek: <strong style={{ color: editingTask.projectColor || 'var(--text-primary)' }}>{editingTask.projectName || editingTask.projectCode}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                {/* Quick Status Bar inside Modal Header */}
+                <div style={{
+                  display: 'inline-flex',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: 2,
+                  gap: 2
+                }}>
+                  {columns.map(c => {
+                    const isActive = editingTask.status === c.id;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setEditingTask({ ...editingTask, status: c.id })}
+                        style={{
+                          background: isActive ? c.color : 'transparent',
+                          color: isActive ? '#fff' : 'var(--text-muted)',
+                          border: 'none',
+                          borderRadius: 'calc(var(--radius-md) - 3px)',
+                          padding: '4px 10px',
+                          fontSize: '0.72rem',
+                          fontWeight: isActive ? 700 : 500,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {c.title}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button 
+                  type="button" 
+                  className="btn btn-secondary btn-sm" 
+                  onClick={() => setShowEditModal(false)}
+                  style={{ width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveEditTask}>
+              <div className="modal-body" style={{ padding: '20px 24px' }}>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                  gap: 24
+                }}>
+                  {/* Left Column: Core Task Scope */}
+                  <div>
+                    <div className="form-group" style={{ marginBottom: 16 }}>
+                      <label className="form-label" style={{ fontWeight: 600 }}>Judul Tugas *</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={editingTask.title}
+                        onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })}
+                        placeholder="Uraian pekerjaan tugas..."
+                        required
+                        style={{ fontSize: '0.9rem', fontWeight: 500 }}
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 16 }}>
+                      <label className="form-label" style={{ fontWeight: 600 }}>Proyek Terkait *</label>
+                      <Select2
+                        options={projectOptions}
+                        value={editingTask.projectId}
+                        onChange={(val) => {
+                          const p = projects.find(proj => proj.id === val);
+                          setEditingTask({ 
+                            ...editingTask, 
+                            projectId: val,
+                            projectName: p ? p.name : editingTask.projectName,
+                            projectCode: p ? p.code : editingTask.projectCode,
+                            projectColor: p ? p.color : editingTask.projectColor
+                          });
+                        }}
+                        placeholder="Pilih proyek..."
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 16 }}>
+                      <label className="form-label" style={{ fontWeight: 600 }}>Deskripsi & Rincian Pekerjaan</label>
+                      <textarea
+                        className="form-control"
+                        rows={7}
+                        value={editingTask.description}
+                        onChange={(e) => setEditingTask({ ...editingTask, description: e.target.value })}
+                        placeholder="Jelaskan kebutuhan teknis, kendala, kriteria selesai, atau solusi..."
+                        style={{ fontSize: '0.84rem', lineHeight: 1.5, resize: 'vertical' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Right Column: Attributes, Classification & Schedule */}
+                  <div>
+                    <div style={{
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: 16,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 14
+                    }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Penanggung Jawab (PIC)</label>
+                        <Select2
+                          options={[{ value: null, label: 'Belum Ditugaskan' }, ...memberOptions]}
+                          value={editingTask.assigneeId}
+                          onChange={(val) => setEditingTask({ ...editingTask, assigneeId: val })}
+                          placeholder="Pilih PIC..."
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Kategori Acuan</label>
+                          <Select2
+                            options={categoryOptions}
+                            value={editingTask.category}
+                            onChange={(val) => setEditingTask({ ...editingTask, category: val })}
+                            placeholder="Pilih kategori..."
+                          />
+                        </div>
+
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Prioritas Kerja</label>
+                          <Select2
+                            options={priorityOptions}
+                            value={editingTask.priority}
+                            onChange={(val) => setEditingTask({ ...editingTask, priority: val })}
+                            placeholder="Tingkat prioritas..."
+                          />
+                        </div>
+                      </div>
+
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Milestone SDLC</label>
+                        <Select2
+                          options={milestoneOptions}
+                          value={editingTask.milestone}
+                          onChange={(val) => setEditingTask({ ...editingTask, milestone: val })}
+                          placeholder="Tahapan milestone..."
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Deadline</label>
+                          <input
+                            type="date"
+                            className="form-control"
+                            value={editingTask.dueDate}
+                            onChange={(e) => setEditingTask({ ...editingTask, dueDate: e.target.value })}
+                            style={{ height: 38, fontSize: '0.82rem' }}
+                          />
+                        </div>
+
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Estimasi Jam</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            className="form-control"
+                            value={editingTask.estimatedHours}
+                            onChange={(e) => setEditingTask({ ...editingTask, estimatedHours: e.target.value })}
+                            style={{ height: 38, fontSize: '0.82rem' }}
+                          />
+                        </div>
+                      </div>
+
+                      {editingTask.createdAt && (
+                        <div style={{
+                          paddingTop: 10,
+                          borderTop: '1px solid var(--border-color)',
+                          fontSize: '0.74rem',
+                          color: 'var(--text-muted)',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}>
+                          <span>Dibuat: {new Date(editingTask.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} WIB</span>
+                          <span style={{ 
+                            display: 'inline-flex', 
+                            alignItems: 'center', 
+                            gap: 4, 
+                            color: editingTask.projectColor || 'var(--primary)',
+                            fontWeight: 600 
+                          }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: editingTask.projectColor || 'var(--primary)' }} />
+                            {editingTask.projectCode}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    handleDeleteTask(editingTask.id, editingTask.title);
+                    setShowEditModal(false);
+                  }}
+                  style={{ color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.08)' }}
+                >
+                  <Trash2 size={15} />
+                  <span>Hapus Tugas</span>
+                </button>
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShowEditModal(false)}
+                    disabled={savingEdit}
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={savingEdit}
+                    style={{ minWidth: 150 }}
+                  >
+                    {savingEdit ? (
+                      <>
+                        <RefreshCw size={15} className="spin" />
+                        <span>Menyimpan...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare size={15} />
+                        <span>Simpan Perubahan</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
