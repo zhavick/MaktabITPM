@@ -30,7 +30,8 @@ import {
   History,
   AlertTriangle,
   Check,
-  Ban
+  Ban,
+  GripVertical
 } from 'lucide-react';
 import api from '../utils/api';
 import Select2 from '../components/Select2';
@@ -79,6 +80,8 @@ export default function TasksPage({ onlyMyTasks = false }) {
   const [exporting, setExporting] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [draggedTaskId, setDraggedTaskId] = useState(null);
+  const [dragOverColId, setDragOverColId] = useState(null);
   const [editingTask, setEditingTask] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -175,6 +178,53 @@ export default function TasksPage({ onlyMyTasks = false }) {
     } catch {
       showToast('Gagal mengubah status tugas', 'error');
     }
+  };
+
+  const handleDragStart = (e, task) => {
+    e.dataTransfer.setData('text/plain', String(task.id));
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggedTaskId(task.id);
+    setIsDragging(true);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedTaskId(null);
+    setDragOverColId(null);
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e, colId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverColId !== colId) {
+      setDragOverColId(colId);
+    }
+  };
+
+  const handleDragLeave = (e, colId) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      if (dragOverColId === colId) {
+        setDragOverColId(null);
+      }
+    }
+  };
+
+  const handleDrop = (e, colId) => {
+    e.preventDefault();
+    setDragOverColId(null);
+    setIsDragging(false);
+    const taskIdStr = e.dataTransfer.getData('text/plain') || String(draggedTaskId || '');
+    setDraggedTaskId(null);
+    if (!taskIdStr) return;
+    const taskId = parseInt(taskIdStr, 10);
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || task.status === colId) return;
+
+    // Optimistic UI update for snappy response
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: colId } : t));
+
+    // Persist to backend API
+    handleStatusChange(taskId, colId);
   };
 
   const handleDeleteTask = async (task) => {
@@ -1347,8 +1397,21 @@ export default function TasksPage({ onlyMyTasks = false }) {
         <div className="kanban-board">
           {columns.map((col) => {
             const colTasks = filteredTasks.filter(t => t.status === col.id);
+            const isColumnHovered = dragOverColId === col.id;
             return (
-              <div key={col.id} className="kanban-column">
+              <div 
+                key={col.id} 
+                className={`kanban-column ${isColumnHovered ? 'is-drag-over' : ''}`}
+                onDragOver={(e) => handleDragOver(e, col.id)}
+                onDragLeave={(e) => handleDragLeave(e, col.id)}
+                onDrop={(e) => handleDrop(e, col.id)}
+                style={{
+                  borderColor: isColumnHovered ? col.color : undefined,
+                  backgroundColor: isColumnHovered ? `${col.color}12` : undefined,
+                  boxShadow: isColumnHovered ? `0 0 16px ${col.color}25` : undefined,
+                  transition: 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease'
+                }}
+              >
                 <div className="kanban-header">
                   <div className="kanban-title" style={{ color: col.color }}>
                     <span style={{ width: 10, height: 10, borderRadius: '50%', background: col.color }}></span>
@@ -1357,7 +1420,7 @@ export default function TasksPage({ onlyMyTasks = false }) {
                   <span className="kanban-count">{colTasks.length}</span>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 120 }}>
                   {colTasks.length === 0 ? (
                     <div style={{ padding: '24px 12px', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                       Tidak ada tugas
@@ -1366,31 +1429,40 @@ export default function TasksPage({ onlyMyTasks = false }) {
                     colTasks.map((task) => (
                       <div 
                         key={task.id} 
-                        className="kanban-card"
+                        className={`kanban-card ${draggedTaskId === task.id ? 'is-dragging' : ''}`}
+                        draggable={true}
+                        onDragStart={(e) => handleDragStart(e, task)}
+                        onDragEnd={handleDragEnd}
                         style={{
                           borderLeft: `4px solid ${task.projectColor || '#6366f1'}`,
-                          transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+                          cursor: isDragging ? 'grabbing' : 'grab',
+                          opacity: draggedTaskId === task.id ? 0.35 : 1,
+                          transform: draggedTaskId === task.id ? 'scale(0.97)' : undefined,
+                          transition: 'transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease'
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                          <span 
-                            style={{ 
-                              fontSize: '0.65rem', 
-                              fontWeight: 700, 
-                              padding: '2px 7px',
-                              borderRadius: '4px',
-                              backgroundColor: `${task.projectColor || '#6366f1'}18`,
-                              color: task.projectColor || '#6366f1',
-                              border: `1px solid ${task.projectColor || '#6366f1'}40`,
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4
-                            }}
-                            title={`Proyek: ${task.projectName || task.projectCode}`}
-                          >
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: task.projectColor || '#6366f1' }}></span>
-                            {task.projectCode}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <GripVertical size={13} style={{ color: 'var(--text-muted)', opacity: 0.5, cursor: 'grab' }} />
+                            <span 
+                              style={{ 
+                                fontSize: '0.65rem', 
+                                fontWeight: 700, 
+                                padding: '2px 7px',
+                                borderRadius: '4px',
+                                backgroundColor: `${task.projectColor || '#6366f1'}18`,
+                                color: task.projectColor || '#6366f1',
+                                border: `1px solid ${task.projectColor || '#6366f1'}40`,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4
+                              }}
+                              title={`Proyek: ${task.projectName || task.projectCode}`}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: task.projectColor || '#6366f1' }}></span>
+                              {task.projectCode}
+                            </span>
+                          </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span className={`badge ${priorityBadgeClass(task.priority)}`}>
                               {task.priority}
@@ -1607,6 +1679,26 @@ export default function TasksPage({ onlyMyTasks = false }) {
                         </div>
                       </div>
                     ))
+                  )}
+
+                  {/* Dropzone Indicator when hovering with a dragged card from another column */}
+                  {isColumnHovered && draggedTaskId && !colTasks.some(t => t.id === draggedTaskId) && (
+                    <div style={{
+                      border: `2px dashed ${col.color}`,
+                      borderRadius: 'var(--radius-md)',
+                      padding: '14px',
+                      textAlign: 'center',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      color: col.color,
+                      background: `${col.color}10`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6
+                    }}>
+                      <span>Lepaskan tugas di sini ({col.title})</span>
+                    </div>
                   )}
                 </div>
               </div>
