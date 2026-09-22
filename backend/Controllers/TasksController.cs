@@ -942,12 +942,12 @@ namespace ProjectManagement.Api.Controllers
                 fallbackProjectName = fb?.Name;
             }
 
-            List<ParsedTaskItem> parsedItems;
+            ExcelImportPackage package;
             try
             {
                 using (var stream = dto.File.OpenReadStream())
                 {
-                    parsedItems = _importService.ParseTasksWithProjectFromExcel(stream, users, fallbackProjectName);
+                    package = _importService.ParseTasksPackageFromExcel(stream, users, fallbackProjectName);
                 }
             }
             catch (FormatException fEx)
@@ -966,10 +966,11 @@ namespace ProjectManagement.Api.Controllers
                 });
             }
 
-            if (parsedItems.Count == 0)
+            var parsedItems = package.Tasks;
+            if (parsedItems.Count == 0 && package.NewUsersToCreate.Count == 0)
                 return BadRequest(new { 
                     success = false, 
-                    message = "Tidak ada baris data tugas yang valid ditemukan pada berkas Excel tersebut. Pastikan berkas memiliki baris data di bawah header resmi." 
+                    message = "Tidak ada baris data tugas atau pengguna yang valid ditemukan pada berkas Excel tersebut. Pastikan berkas memiliki baris data di bawah header resmi." 
                 });
 
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -977,10 +978,54 @@ namespace ProjectManagement.Api.Controllers
             var currentUserName = User.FindFirstValue(ClaimTypes.Name) ?? "System Administrator";
             var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "Admin";
 
+            // 1. Save auto-created users if any were found in User sheets, Person sheets, or Developer columns
+            var createdUsersList = new List<User>();
+            if (package.NewUsersToCreate.Count > 0)
+            {
+                foreach (var newUser in package.NewUsersToCreate)
+                {
+                    // Verify if user already exists in DB
+                    var exists = allProjects != null && _context.Users.Any(u => 
+                        u.Email.ToLower() == newUser.Email.ToLower() ||
+                        u.FullName.ToLower() == newUser.FullName.ToLower());
+
+                    if (!exists)
+                    {
+                        _context.Users.Add(newUser);
+                        createdUsersList.Add(newUser);
+                    }
+                }
+
+                if (createdUsersList.Count > 0)
+                {
+                    await _context.SaveChangesAsync();
+                    // Refresh users list with newly assigned IDs
+                    users = await _context.Users.ToListAsync();
+                }
+
+                // Re-link assignee for tasks that referenced newly created users
+                foreach (var item in parsedItems)
+                {
+                    if (!item.Task.AssigneeId.HasValue && !string.IsNullOrWhiteSpace(item.DeveloperOrPicName))
+                    {
+                        var target = item.DeveloperOrPicName.Trim();
+                        var matched = users.FirstOrDefault(u => 
+                            u.FullName.Equals(target, StringComparison.OrdinalIgnoreCase) ||
+                            u.Email.Equals(target, StringComparison.OrdinalIgnoreCase) ||
+                            u.FullName.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            target.IndexOf(u.FullName, StringComparison.OrdinalIgnoreCase) >= 0);
+                        if (matched != null)
+                        {
+                            item.Task.AssigneeId = matched.Id;
+                        }
+                    }
+                }
+            }
+
             var newProjectsAdded = new List<Project>();
             var presetColors = new[] { "#4f46e5", "#10b981", "#0284c7", "#f59e0b", "#e11d48", "#8b5cf6", "#06b6d4" };
 
-            // Resolve or create project for each task based on Excel Column 2
+            // 2. Resolve or create project for each task based on Excel project_name column
             foreach (var item in parsedItems)
             {
                 var targetName = item.ProjectName.Trim();
@@ -1033,7 +1078,6 @@ namespace ProjectManagement.Api.Controllers
                     newProjectsAdded.Add(matchedProject);
                 }
 
-                // Assign matched project to task
                 item.Task.Project = matchedProject;
             }
 
@@ -1050,8 +1094,11 @@ namespace ProjectManagement.Api.Controllers
                 item.Task.Project = null; // Detach reference for clean insert
             }
 
-            _context.Tasks.AddRange(parsedItems.Select(p => p.Task));
-            await _context.SaveChangesAsync();
+            if (parsedItems.Count > 0)
+            {
+                _context.Tasks.AddRange(parsedItems.Select(p => p.Task));
+                await _context.SaveChangesAsync();
+            }
 
             var distinctProjects = parsedItems
                 .Select(p => p.ProjectName)
@@ -1062,8 +1109,27 @@ namespace ProjectManagement.Api.Controllers
                 ? string.Join(", ", distinctProjects) 
                 : $"{string.Join(", ", distinctProjects.Take(3))} dan {distinctProjects.Count - 3} proyek lainnya";
 
+            // Build detailed descriptive message
+            var msgParts = new List<string>();
+            if (parsedItems.Count > 0)
+            {
+                msgParts.Add($"Berhasil mengimpor {parsedItems.Count} tugas ke dalam {distinctProjects.Count} proyek ({projectSummary})");
+            }
+            if (createdUsersList.Count > 0)
+            {
+                var names = string.Join(", ", createdUsersList.Select(u => u.FullName).Take(3));
+                if (createdUsersList.Count > 3) names += $" dan {createdUsersList.Count - 3} lainnya";
+                msgParts.Add($"membuat {createdUsersList.Count} pengguna baru ({names})");
+            }
+            if (package.SkippedSheets.Count > 0)
+            {
+                msgParts.Add($"melewati {package.SkippedSheets.Count} sheet informasi/dashboard ({string.Join(", ", package.SkippedSheets.Take(2))})");
+            }
+
+            var finalMessage = string.Join(", ", msgParts) + "!";
+
             await _auditService.LogAsync("TASKS_IMPORTED_EXCEL", "Tasks", 
-                $"{parsedItems.Count} tugas berhasil diimpor dari Excel '{dto.File.FileName}' ke dalam {distinctProjects.Count} proyek ({projectSummary}).", 
+                $"{parsedItems.Count} tugas diimpor dari Excel '{dto.File.FileName}'. {createdUsersList.Count} user baru dibuat. {package.SkippedSheets.Count} sheet dilewati.", 
                 "Info", null, currentUserName, currentUserRole);
 
             // Broadcast real-time update to all clients
@@ -1072,7 +1138,8 @@ namespace ProjectManagement.Api.Controllers
                 Type = "TaskUpdated",
                 Action = "Imported",
                 Count = parsedItems.Count,
-                ProjectsCount = distinctProjects.Count
+                ProjectsCount = distinctProjects.Count,
+                NewUsersCount = createdUsersList.Count
             });
 
             return Ok(new
@@ -1081,13 +1148,18 @@ namespace ProjectManagement.Api.Controllers
                 count = parsedItems.Count,
                 projectsCount = distinctProjects.Count,
                 projectNames = distinctProjects,
-                message = $"Berhasil mengimpor {parsedItems.Count} tugas ke dalam {distinctProjects.Count} proyek ({projectSummary})!",
+                newUsersCount = createdUsersList.Count,
+                newUsers = createdUsersList.Select(u => new { u.Id, u.FullName, u.Email, u.Role }).ToList(),
+                skippedSheets = package.SkippedSheets,
+                processedSheets = package.ProcessedSheets,
+                message = finalMessage,
                 data = new
                 {
                     importedCount = parsedItems.Count,
                     projectsCount = distinctProjects.Count,
                     projectNames = distinctProjects,
-                    sampleTasks = parsedItems.Take(5).Select(t => new { t.Task.Id, t.Task.Title, t.Task.Status, t.Task.Priority, Project = t.ProjectName })
+                    newUsersCount = createdUsersList.Count,
+                    skippedSheets = package.SkippedSheets
                 }
             });
         }

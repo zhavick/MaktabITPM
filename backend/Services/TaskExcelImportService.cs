@@ -15,12 +15,23 @@ namespace ProjectManagement.Api.Services
         public string ProjectName { get; set; } = string.Empty;
         public TaskItem Task { get; set; } = null!;
         public string SheetName { get; set; } = string.Empty;
+        public string? DeveloperOrPicName { get; set; }
+    }
+
+    public class ExcelImportPackage
+    {
+        public List<ParsedTaskItem> Tasks { get; set; } = new();
+        public List<User> NewUsersToCreate { get; set; } = new();
+        public List<string> SkippedSheets { get; set; } = new();
+        public List<string> ProcessedSheets { get; set; } = new();
+        public List<string> UserSheets { get; set; } = new();
     }
 
     public interface ITaskExcelImportService
     {
         List<TaskItem> ParseTasksFromExcel(Stream fileStream, int targetProjectId, List<User> users);
         List<ParsedTaskItem> ParseTasksWithProjectFromExcel(Stream fileStream, List<User> users, string? defaultProjectName = null);
+        ExcelImportPackage ParseTasksPackageFromExcel(Stream fileStream, List<User> users, string? defaultProjectName = null);
         byte[] GenerateTemplateExcel();
         byte[] GenerateTasksExportExcel(List<TaskResponseDto> tasks, string? filterSummary = null);
         byte[] GenerateTasksExportCsv(List<TaskResponseDto> tasks);
@@ -30,12 +41,17 @@ namespace ProjectManagement.Api.Services
     {
         public List<TaskItem> ParseTasksFromExcel(Stream fileStream, int targetProjectId, List<User> users)
         {
-            var parsed = ParseTasksWithProjectFromExcel(fileStream, users);
-            foreach (var item in parsed)
+            var package = ParseTasksPackageFromExcel(fileStream, users);
+            foreach (var item in package.Tasks)
             {
                 item.Task.ProjectId = targetProjectId;
             }
-            return parsed.Select(p => p.Task).ToList();
+            return package.Tasks.Select(p => p.Task).ToList();
+        }
+
+        public List<ParsedTaskItem> ParseTasksWithProjectFromExcel(Stream fileStream, List<User> users, string? defaultProjectName = null)
+        {
+            return ParseTasksPackageFromExcel(fileStream, users, defaultProjectName).Tasks;
         }
 
         public static readonly string[] ExpectedExcelHeaders = new[]
@@ -73,11 +89,124 @@ namespace ProjectManagement.Api.Services
             return new string(header.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
         }
 
-        public List<ParsedTaskItem> ParseTasksWithProjectFromExcel(Stream fileStream, List<User> users, string? defaultProjectName = null)
+        private static string GenerateEmailFromName(string fullName, IEnumerable<User> existingUsers)
         {
-            var results = new List<ParsedTaskItem>();
-            XLWorkbook workbook;
+            var clean = new string(fullName.Where(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c)).ToArray()).Trim();
+            var words = clean.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            string baseSlug;
+            if (words.Length == 1)
+                baseSlug = words[0].ToLowerInvariant();
+            else if (words.Length >= 2)
+                baseSlug = $"{words[0].ToLowerInvariant()}.{words[1].ToLowerInvariant()}";
+            else
+                baseSlug = "user";
 
+            var candidate = $"{baseSlug}@projectmgmt.local";
+            int counter = 1;
+            while (existingUsers.Any(u => u.Email.Equals(candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                candidate = $"{baseSlug}{counter++}@projectmgmt.local";
+            }
+            return candidate;
+        }
+
+        private static string CleanNameFromEmail(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return "User Baru";
+            var prefix = email.Split('@')[0];
+            var parts = prefix.Split(new[] { '.', '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return prefix;
+            return string.Join(" ", parts.Select(p => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(p.ToLowerInvariant())));
+        }
+
+        private static string MapRole(string? roleStr)
+        {
+            if (string.IsNullOrWhiteSpace(roleStr)) return "InternalEmployee";
+            var lower = roleStr.Trim().ToLowerInvariant();
+            if (lower.Contains("admin")) return "Admin";
+            if (lower.Contains("manager") || lower.Contains("pm") || lower.Contains("lead")) return "ProjectManager";
+            if (lower.Contains("caretaker")) return "Caretaker";
+            if (lower.Contains("consultant") || lower.Contains("konsultan") || lower.Contains("vendor") || lower.Contains("external")) return "Consultant";
+            return "InternalEmployee";
+        }
+
+        private static bool IsPersonName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            name = name.Trim();
+            var lower = name.ToLowerInvariant();
+            var systemWords = new[] { 
+                "sheet", "task", "tugas", "project", "proyek", "dashboard", "info", "informasi",
+                "summary", "ringkasan", "cover", "petunjuk", "panduan", "readme", "instruction",
+                "keterangan", "rekap", "data", "export", "import", "master", "milestone", "category",
+                "mobile", "banking", "crm", "system", "sistem", "app", "apps", "aplikasi", "portal",
+                "web", "website", "service", "services", "api", "backend", "frontend", "database",
+                "infra", "infrastructure", "client", "server", "core", "integration", "gateway"
+            };
+            if (systemWords.Any(w => lower.Contains(w))) return false;
+
+            if (!name.All(c => char.IsLetter(c) || char.IsWhiteSpace(c) || c == '.' || c == '\'')) return false;
+
+            var words = name.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            return words.Length >= 2 && words.Length <= 4;
+        }
+
+        private static bool IsInfoOrDashboardSheet(IXLWorksheet worksheet, List<IXLRangeRow>? rows, Dictionary<string, int> headerMap)
+        {
+            var lower = worksheet.Name.Trim().ToLowerInvariant();
+            var infoKeywords = new[] {
+                "dashboard", "info", "informasi", "overview", "summary", "ringkasan", 
+                "cover", "petunjuk", "panduan", "readme", "instruction", "keterangan", 
+                "catatan", "rekap", "statistic", "statistik", "baca saya"
+            };
+
+            if (infoKeywords.Any(k => lower.Contains(k))) return true;
+
+            if (rows == null || rows.Count <= 1) return true;
+
+            bool hasTaskHeader = headerMap.ContainsKey("title") || 
+                                 headerMap.ContainsKey("namatask") || 
+                                 headerMap.ContainsKey("tasktitle") || 
+                                 headerMap.ContainsKey("kodetask") || 
+                                 headerMap.ContainsKey("projectname") ||
+                                 headerMap.ContainsKey("namaproject");
+
+            bool hasUserHeader = headerMap.ContainsKey("nama") || 
+                                 headerMap.ContainsKey("fullname") || 
+                                 headerMap.ContainsKey("namalengkap") ||
+                                 headerMap.ContainsKey("namaorang");
+
+            return !hasTaskHeader && !hasUserHeader;
+        }
+
+        private static bool IsUserSheet(IXLWorksheet worksheet, Dictionary<string, int> headerMap)
+        {
+            var lower = worksheet.Name.Trim().ToLowerInvariant();
+            var userSheetKeywords = new[] { 
+                "user", "users", "team", "tim", "anggota", "member", "members", 
+                "pic", "personil", "personnel", "karyawan", "employee", "employees", 
+                "daftar tim", "daftar user", "data user", "data personil", "nama orang" 
+            };
+
+            if (userSheetKeywords.Any(k => lower.Contains(k))) return true;
+
+            bool hasNameCol = headerMap.ContainsKey("nama") || headerMap.ContainsKey("name") || 
+                              headerMap.ContainsKey("fullname") || headerMap.ContainsKey("namalengkap") ||
+                              headerMap.ContainsKey("namapersonil") || headerMap.ContainsKey("personil");
+
+            bool hasTaskSpecificCol = headerMap.ContainsKey("requirementcode") || 
+                                      headerMap.ContainsKey("bugtype") || 
+                                      headerMap.ContainsKey("kodetask");
+
+            return hasNameCol && !hasTaskSpecificCol;
+        }
+
+        public ExcelImportPackage ParseTasksPackageFromExcel(Stream fileStream, List<User> users, string? defaultProjectName = null)
+        {
+            var package = new ExcelImportPackage();
+            var workingUsers = new List<User>(users ?? new List<User>());
+
+            XLWorkbook workbook;
             try
             {
                 workbook = new XLWorkbook(fileStream);
@@ -89,26 +218,79 @@ namespace ProjectManagement.Api.Services
 
             using (workbook)
             {
-                bool anyValidSheetFound = false;
+                // Helper to safely get cell string
+                string GetCellString(IXLRangeRow row, int col)
+                {
+                    if (col <= 0) return string.Empty;
+                    try
+                    {
+                        var cell = row.Cell(col);
+                        var str = cell.GetString().Trim();
+                        if (string.IsNullOrEmpty(str))
+                        {
+                            str = cell.GetFormattedString().Trim();
+                        }
+                        return str;
+                    }
+                    catch
+                    {
+                        return string.Empty;
+                    }
+                }
 
-                // User requirement: Iterate and parse EVERY worksheet in the Excel workbook
+                // Helper to find or auto-create user
+                User EnsureUserExists(string rawNameOrEmail, string? roleHint = null)
+                {
+                    var token = rawNameOrEmail.Trim();
+                    bool isEmail = token.Contains("@");
+
+                    var existing = workingUsers.FirstOrDefault(u =>
+                        (isEmail && u.Email.Equals(token, StringComparison.OrdinalIgnoreCase)) ||
+                        (!isEmail && (u.FullName.Equals(token, StringComparison.OrdinalIgnoreCase) ||
+                                      u.FullName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                      token.IndexOf(u.FullName, StringComparison.OrdinalIgnoreCase) >= 0)));
+
+                    if (existing != null) return existing;
+
+                    var fullName = isEmail ? CleanNameFromEmail(token) : token;
+                    var email = isEmail ? token : GenerateEmailFromName(fullName, workingUsers);
+
+                    var newUser = new User
+                    {
+                        FullName = fullName.Length > 150 ? fullName.Substring(0, 150) : fullName,
+                        Email = email.Length > 150 ? email.Substring(0, 150) : email,
+                        PasswordHash = BCrypt.Net.BCrypt.HashPassword("User@123"),
+                        Role = MapRole(roleHint),
+                        EmploymentType = "Internal",
+                        Status = "Active",
+                        OnboardingCompleted = true,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    workingUsers.Add(newUser);
+                    package.NewUsersToCreate.Add(newUser);
+                    return newUser;
+                }
+
+                int sheetIndex = 0;
                 foreach (var worksheet in workbook.Worksheets)
                 {
+                    sheetIndex++;
                     var rows = worksheet.RangeUsed()?.RowsUsed()?.ToList();
-                    if (rows == null || rows.Count <= 1) continue; // Skip empty sheets or single-header-only sheets
 
-                    // Map header names to column indexes (1-based) for this specific worksheet
+                    // Map headers of this sheet
                     var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                    var firstRow = rows.FirstOrDefault();
-                    if (firstRow == null) continue;
-
-                    foreach (var cell in firstRow.CellsUsed())
+                    var firstRow = rows?.FirstOrDefault();
+                    if (firstRow != null)
                     {
-                        var rawVal = cell.GetString().Trim();
-                        var normVal = NormalizeHeader(rawVal);
-                        if (!string.IsNullOrEmpty(normVal) && !headerMap.ContainsKey(normVal))
+                        foreach (var cell in firstRow.CellsUsed())
                         {
-                            headerMap[normVal] = cell.Address.ColumnNumber;
+                            var rawVal = cell.GetString().Trim();
+                            var normVal = NormalizeHeader(rawVal);
+                            if (!string.IsNullOrEmpty(normVal) && !headerMap.ContainsKey(normVal))
+                            {
+                                headerMap[normVal] = cell.Address.ColumnNumber;
+                            }
                         }
                     }
 
@@ -120,14 +302,75 @@ namespace ProjectManagement.Api.Services
                             if (headerMap.TryGetValue(normAlias, out var col))
                                 return col;
                             
-                            // Check partial contains match
                             var key = headerMap.Keys.FirstOrDefault(k => k.Contains(normAlias) || normAlias.Contains(k));
                             if (key != null) return headerMap[key];
                         }
                         return -1;
                     }
 
-                    // Map all 25 specific headers requested by user
+                    // 1. Check if this sheet is an Information / Dashboard sheet -> SKIP
+                    if (IsInfoOrDashboardSheet(worksheet, rows, headerMap))
+                    {
+                        package.SkippedSheets.Add(worksheet.Name);
+                        continue;
+                    }
+
+                    if (rows == null || rows.Count <= 1)
+                    {
+                        package.SkippedSheets.Add(worksheet.Name);
+                        continue;
+                    }
+
+                    // 2. Check if this sheet contains User / Team Personil Information -> AUTO-CREATE USERS
+                    if (IsUserSheet(worksheet, headerMap))
+                    {
+                        package.UserSheets.Add(worksheet.Name);
+                        package.ProcessedSheets.Add($"{worksheet.Name} (Daftar Pengguna/Tim)");
+
+                        int colName = GetCol("nama", "name", "full_name", "nama_lengkap", "nama personil", "personil", "anggota");
+                        int colEmail = GetCol("email", "surel", "e-mail");
+                        int colRole = GetCol("role", "jabatan", "peran", "posisi");
+                        int colPhone = GetCol("phone", "no_hp", "telepon", "handphone");
+                        int colCompany = GetCol("company", "instansi", "perusahaan", "divisi");
+
+                        bool isFirst = true;
+                        foreach (var row in rows)
+                        {
+                            if (isFirst) { isFirst = false; continue; }
+
+                            var nameVal = colName > 0 ? GetCellString(row, colName) : string.Empty;
+                            var emailVal = colEmail > 0 ? GetCellString(row, colEmail) : string.Empty;
+                            var roleVal = colRole > 0 ? GetCellString(row, colRole) : string.Empty;
+                            var phoneVal = colPhone > 0 ? GetCellString(row, colPhone) : string.Empty;
+                            var compVal = colCompany > 0 ? GetCellString(row, colCompany) : string.Empty;
+
+                            if (string.IsNullOrWhiteSpace(nameVal) && string.IsNullOrWhiteSpace(emailVal))
+                                continue;
+
+                            var targetToken = !string.IsNullOrWhiteSpace(emailVal) ? emailVal : nameVal;
+                            var user = EnsureUserExists(targetToken, roleVal);
+                            if (!string.IsNullOrWhiteSpace(nameVal) && user.FullName == "User Baru")
+                            {
+                                user.FullName = nameVal;
+                            }
+                            if (!string.IsNullOrWhiteSpace(phoneVal)) user.PhoneNumber = phoneVal;
+                            if (!string.IsNullOrWhiteSpace(compVal)) user.CompanyOrAgency = compVal;
+                        }
+
+                        // Done parsing user sheet, proceed to next sheet
+                        continue;
+                    }
+
+                    // 3. Process Task Sheet
+                    package.ProcessedSheets.Add(worksheet.Name);
+
+                    // Check if worksheet name itself represents a Person's Name (e.g. "Budi Santoso", "Siti Rahma")
+                    User? sheetAssignedUser = null;
+                    if (IsPersonName(worksheet.Name))
+                    {
+                        sheetAssignedUser = EnsureUserExists(worksheet.Name, "InternalEmployee");
+                    }
+
                     int colNo = GetCol("No.", "No");
                     int colProject = GetCol("project_name", "project name", "nama project", "nama proyek", "project", "proyek");
                     int colReqCode = GetCol("requirement_code", "requirement code", "req code", "no requirement");
@@ -154,60 +397,6 @@ namespace ProjectManagement.Api.Services
                     int colEvidence = GetCol("evidence", "bukti", "lampiran", "referensi", "attachment");
                     int colKodeTask = GetCol("kode_task", "kode task", "task code", "kode");
 
-                    // Validate header structure: at least 'title' must be present, or column 4/2
-                    if (colTitle <= 0 && colProject <= 0 && colKodeTask <= 0)
-                    {
-                        // This worksheet does not contain valid project task headers, skip sheet
-                        continue;
-                    }
-
-                    anyValidSheetFound = true;
-
-                    string GetCellString(IXLRangeRow row, int col)
-                    {
-                        if (col <= 0) return string.Empty;
-                        try
-                        {
-                            var cell = row.Cell(col);
-                            var str = cell.GetString().Trim();
-                            if (string.IsNullOrEmpty(str))
-                            {
-                                str = cell.GetFormattedString().Trim();
-                            }
-                            return str;
-                        }
-                        catch
-                        {
-                            return string.Empty;
-                        }
-                    }
-
-                    // Helper to match user by email or name from delimited string
-                    User? ResolveUserFromEmails(string? emailList)
-                    {
-                        if (string.IsNullOrWhiteSpace(emailList) || emailList.Equals("-") || users == null)
-                            return null;
-
-                        var tokens = emailList.Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries)
-                                              .Select(t => t.Trim())
-                                              .Where(t => !string.IsNullOrEmpty(t));
-
-                        foreach (var token in tokens)
-                        {
-                            // Match by email first
-                            var byEmail = users.FirstOrDefault(u => u.Email.Equals(token, StringComparison.OrdinalIgnoreCase));
-                            if (byEmail != null) return byEmail;
-
-                            // Match by full name
-                            var byName = users.FirstOrDefault(u => 
-                                u.FullName.Equals(token, StringComparison.OrdinalIgnoreCase) ||
-                                u.FullName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                token.IndexOf(u.FullName, StringComparison.OrdinalIgnoreCase) >= 0);
-                            if (byName != null) return byName;
-                        }
-                        return null;
-                    }
-
                     bool isHeader = true;
                     string lastSeenProject = string.Empty;
 
@@ -219,7 +408,6 @@ namespace ProjectManagement.Api.Services
                             continue;
                         }
 
-                        // Title resolution: check colTitle header first, or fallback to col 4 or col 3
                         var title = GetCellString(row, colTitle);
                         if (string.IsNullOrWhiteSpace(title))
                         {
@@ -229,13 +417,8 @@ namespace ProjectManagement.Api.Services
                         }
                         if (string.IsNullOrWhiteSpace(title)) continue;
 
-                        // Project Name resolution:
-                        // Priority 1: Column mapped as colProject or Column 2
                         var projInFile = colProject > 0 ? GetCellString(row, colProject) : GetCellString(row, 2);
-                        if (string.IsNullOrWhiteSpace(projInFile))
-                        {
-                            projInFile = GetCellString(row, 2);
-                        }
+                        if (string.IsNullOrWhiteSpace(projInFile)) projInFile = GetCellString(row, 2);
 
                         if (!string.IsNullOrWhiteSpace(projInFile))
                         {
@@ -249,7 +432,7 @@ namespace ProjectManagement.Api.Services
                         {
                             projInFile = defaultProjectName;
                         }
-                        else if (!string.IsNullOrWhiteSpace(worksheet.Name) && !worksheet.Name.StartsWith("Sheet", StringComparison.OrdinalIgnoreCase))
+                        else if (!string.IsNullOrWhiteSpace(worksheet.Name) && !worksheet.Name.StartsWith("Sheet", StringComparison.OrdinalIgnoreCase) && !IsPersonName(worksheet.Name))
                         {
                             projInFile = worksheet.Name;
                         }
@@ -270,7 +453,6 @@ namespace ProjectManagement.Api.Services
                         var dueDateStr = colDueDate > 0 ? GetCellString(row, colDueDate) : string.Empty;
                         var completedDateStr = colCompletedDate > 0 ? GetCellString(row, colCompletedDate) : string.Empty;
 
-                        // Email roles
                         var devEmails = colDevEmails > 0 ? GetCellString(row, colDevEmails) : string.Empty;
                         var baEmails = colBaEmails > 0 ? GetCellString(row, colBaEmails) : string.Empty;
                         var infraEmails = colInfraEmails > 0 ? GetCellString(row, colInfraEmails) : string.Empty;
@@ -312,18 +494,44 @@ namespace ProjectManagement.Api.Services
                                 status = "Todo";
                         }
 
-                        // Assignee matching from emails
-                        int? assigneeId = null;
-                        var matchedUser = ResolveUserFromEmails(devEmails)
-                                       ?? ResolveUserFromEmails(saEmails)
-                                       ?? ResolveUserFromEmails(baEmails)
-                                       ?? ResolveUserFromEmails(qaEmails)
-                                       ?? ResolveUserFromEmails(testerEmails);
-
-                        if (matchedUser != null)
+                        // Assignee matching & auto-creation
+                        string? primaryPerson = null;
+                        if (!string.IsNullOrWhiteSpace(devEmails) && !devEmails.Equals("-"))
                         {
-                            assigneeId = matchedUser.Id;
+                            var firstDev = devEmails.Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim();
+                            if (!string.IsNullOrWhiteSpace(firstDev)) primaryPerson = firstDev;
                         }
+                        else if (sheetAssignedUser != null)
+                        {
+                            primaryPerson = sheetAssignedUser.FullName;
+                        }
+
+                        int? assigneeId = null;
+                        if (!string.IsNullOrWhiteSpace(primaryPerson))
+                        {
+                            var assignedUser = EnsureUserExists(primaryPerson, "InternalEmployee");
+                            assigneeId = assignedUser.Id > 0 ? assignedUser.Id : (int?)null;
+                        }
+
+                        // Auto-create other role users if they are mentioned
+                        void EnsureRoleUsersExist(string? emails, string roleLabel)
+                        {
+                            if (string.IsNullOrWhiteSpace(emails) || emails.Equals("-")) return;
+                            var parts = emails.Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries);
+                            foreach (var p in parts)
+                            {
+                                var clean = p.Trim();
+                                if (!string.IsNullOrWhiteSpace(clean) && !clean.Equals("-"))
+                                    EnsureUserExists(clean, roleLabel);
+                            }
+                        }
+                        EnsureRoleUsersExist(baEmails, "ProjectManager");
+                        EnsureRoleUsersExist(saEmails, "ProjectManager");
+                        EnsureRoleUsersExist(qaEmails, "InternalEmployee");
+                        EnsureRoleUsersExist(testerEmails, "InternalEmployee");
+                        EnsureRoleUsersExist(infraEmails, "InternalEmployee");
+                        EnsureRoleUsersExist(masterDataEmails, "InternalEmployee");
+                        EnsureRoleUsersExist(techWriterEmails, "InternalEmployee");
 
                         // Due date parsing
                         DateTime? dueDate = null;
@@ -336,7 +544,6 @@ namespace ProjectManagement.Api.Services
                             }
                         }
 
-                        // Title assembly with Code if present
                         var finalTitle = title;
                         if (!string.IsNullOrWhiteSpace(kodeTask) && !kodeTask.Equals("-"))
                         {
@@ -355,10 +562,7 @@ namespace ProjectManagement.Api.Services
                         if (finalTitle.Length > 500)
                             finalTitle = finalTitle.Substring(0, 500);
 
-                        // Build rich formatted description encompassing all 25 header columns
                         var descBuilder = new StringBuilder();
-
-                        // Header Metadata Tags
                         var metaTags = new List<string>();
                         if (!string.IsNullOrWhiteSpace(projInFile)) metaTags.Add($"Proyek: {projInFile}");
                         if (!string.IsNullOrWhiteSpace(kodeTask) && !kodeTask.Equals("-")) metaTags.Add($"Kode: {kodeTask}");
@@ -374,7 +578,6 @@ namespace ProjectManagement.Api.Services
                             descBuilder.AppendLine();
                         }
 
-                        // Schedule dates
                         var dateParts = new List<string>();
                         if (!string.IsNullOrWhiteSpace(startDateStr)) dateParts.Add($"Mulai: {startDateStr}");
                         if (!string.IsNullOrWhiteSpace(dueDateStr)) dateParts.Add($"Deadline: {dueDateStr}");
@@ -386,7 +589,6 @@ namespace ProjectManagement.Api.Services
                             descBuilder.AppendLine();
                         }
 
-                        // Stakeholders & Team Emails
                         var teamList = new List<string>();
                         void AddTeam(string roleLabel, string emails)
                         {
@@ -394,7 +596,7 @@ namespace ProjectManagement.Api.Services
                                 teamList.Add($"• **{roleLabel}**: {emails}");
                         }
 
-                        AddTeam("Developer", devEmails);
+                        AddTeam("Developer / PIC", devEmails);
                         AddTeam("Business Analyst", baEmails);
                         AddTeam("System Analyst", saEmails);
                         AddTeam("Quality Assurance", qaEmails);
@@ -413,7 +615,6 @@ namespace ProjectManagement.Api.Services
                             descBuilder.AppendLine();
                         }
 
-                        // Kendala / Blocker
                         if (!string.IsNullOrWhiteSpace(kendala) && !kendala.Equals("-"))
                         {
                             descBuilder.AppendLine("⚠️ **Kendala / Blocker**:");
@@ -421,7 +622,6 @@ namespace ProjectManagement.Api.Services
                             descBuilder.AppendLine();
                         }
 
-                        // Solusi / Action Plan
                         if (!string.IsNullOrWhiteSpace(solusi) && !solusi.Equals("-"))
                         {
                             descBuilder.AppendLine("💡 **Solusi / Tindak Lanjut**:");
@@ -429,7 +629,6 @@ namespace ProjectManagement.Api.Services
                             descBuilder.AppendLine();
                         }
 
-                        // Evidence / Link
                         if (!string.IsNullOrWhiteSpace(evidence) && !evidence.Equals("-"))
                         {
                             descBuilder.AppendLine("📎 **Evidence / Bukti Pendukung**:");
@@ -447,7 +646,7 @@ namespace ProjectManagement.Api.Services
 
                         var task = new TaskItem
                         {
-                            ProjectId = 0, // Assigned dynamically by controller based on ProjectName
+                            ProjectId = 0,
                             Title = finalTitle,
                             Description = finalDesc,
                             Category = !string.IsNullOrWhiteSpace(jenisTask) ? jenisTask : null,
@@ -460,26 +659,27 @@ namespace ProjectManagement.Api.Services
                             CreatedAt = DateTime.UtcNow
                         };
 
-                        results.Add(new ParsedTaskItem
+                        package.Tasks.Add(new ParsedTaskItem
                         {
                             ProjectName = projInFile,
                             Task = task,
-                            SheetName = worksheet.Name
+                            SheetName = worksheet.Name,
+                            DeveloperOrPicName = primaryPerson
                         });
                     }
                 }
 
-                if (!anyValidSheetFound)
+                if (package.Tasks.Count == 0 && package.NewUsersToCreate.Count == 0)
                 {
                     throw new FormatException(
-                        "Header file Excel tidak sesuai. File Excel wajib mengikuti 25 kolom berikut: " +
+                        "Tidak ada data tugas yang dapat dibaca. Pastikan file Excel memiliki sheet tugas dengan baris data di bawah 25 kolom header resmi: " +
                         string.Join(", ", ExpectedExcelHeaders) +
                         ". Silakan unduh Template Excel resmi untuk panduan format."
                     );
                 }
             }
 
-            return results;
+            return package;
         }
 
         public byte[] GenerateTemplateExcel()
@@ -532,7 +732,59 @@ namespace ProjectManagement.Api.Services
                 worksheet.Column(24).Width = 28; // evidence
             }
 
-            // Sheet 1: NextGen Mobile Banking
+            // Sheet 1: Dashboard & Petunjuk (Will be safely skipped by the parser)
+            var sheetDashboard = workbook.Worksheets.Add("Dashboard Info");
+            sheetDashboard.Cell(1, 1).Value = "DASHBOARD INFORMASI & PETUNJUK IMPORT TUGAS";
+            sheetDashboard.Cell(1, 1).Style.Font.Bold = true;
+            sheetDashboard.Cell(1, 1).Style.Font.FontSize = 14;
+            sheetDashboard.Cell(1, 1).Style.Font.FontColor = XLColor.FromHtml("#1E1B4B");
+
+            sheetDashboard.Cell(2, 1).Value = "Sheet ini berfungsi sebagai halaman panduan dan ringkasan eksekutif. Sistem secara otomatis akan melewati (skip) sheet ini tanpa menimbulkan galat.";
+            sheetDashboard.Cell(2, 1).Style.Font.Italic = true;
+            sheetDashboard.Cell(2, 1).Style.Font.FontSize = 9.5;
+            sheetDashboard.Cell(2, 1).Style.Font.FontColor = XLColor.FromHtml("#64748B");
+
+            sheetDashboard.Cell(4, 1).Value = "PANDUAN STRUKTUR WORKBOOK:";
+            sheetDashboard.Cell(4, 1).Style.Font.Bold = true;
+            sheetDashboard.Cell(5, 1).Value = "1. Sheet Pertama (Dashboard/Informasi): Secara otomatis dilewati oleh sistem import.";
+            sheetDashboard.Cell(6, 1).Value = "2. Sheet Pengguna/Tim (misal: 'Daftar Tim'): Sistem otomatis mendaftarkan personil yang belum ada ke database pengguna.";
+            sheetDashboard.Cell(7, 1).Value = "3. Sheet Tugas Proyek: Menggunakan 25 header standar resmi untuk mengimpor seluruh uraian tugas.";
+            sheetDashboard.Cell(8, 1).Value = "4. Multi-Sheet: Seluruh sheet tugas diproses secara berkelanjutan dan otomatis ditautkan ke proyek.";
+            sheetDashboard.Columns().AdjustToContents();
+
+            // Sheet 2: Daftar Tim / Pengguna (Auto-creates users in system)
+            var sheetTim = workbook.Worksheets.Add("Daftar Tim");
+            string[] timHeaders = { "No.", "Nama", "Email", "Role", "Divisi", "Phone" };
+            for (int h = 0; h < timHeaders.Length; h++)
+            {
+                var cell = sheetTim.Cell(1, h + 1);
+                cell.Value = timHeaders[h];
+                cell.Style.Font.Bold = true;
+                cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#059669");
+                cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            }
+            sheetTim.Row(1).Height = 26;
+
+            var timData = new[]
+            {
+                new[] { "1", "Reza Pratama", "reza.pratama@projectmgmt.local", "InternalEmployee", "Mobile Engineering", "081234567891" },
+                new[] { "2", "Dewi Lestari", "dewi.lestari@projectmgmt.local", "ProjectManager", "Product & Delivery", "081234567892" },
+                new[] { "3", "Hendra Wijaya", "hendra.wijaya@projectmgmt.local", "InternalEmployee", "Quality Assurance", "081234567893" }
+            };
+            for (int r = 0; r < timData.Length; r++)
+            {
+                for (int c = 0; c < timData[r].Length; c++)
+                {
+                    sheetTim.Cell(r + 2, c + 1).Value = timData[r][c];
+                }
+                sheetTim.Row(r + 2).Height = 20;
+            }
+            sheetTim.Columns().AdjustToContents();
+            sheetTim.Column(2).Width = 22;
+            sheetTim.Column(3).Width = 32;
+
+            // Sheet 3: NextGen Mobile Banking (Task Sheet)
             var sheet1 = workbook.Worksheets.Add("Mobile Banking");
             var sampleDataSheet1 = new[]
             {
@@ -550,11 +802,11 @@ namespace ProjectManagement.Api.Services
                     "2026-10-01",                       // start_date
                     "2026-10-15",                       // due_date
                     "-",                                // completed_date
-                    "budi.santoso@projectmgmt.local",   // developer_emails
-                    "siti.rahma@projectmgmt.local",     // ba_emails
+                    "reza.pratama@projectmgmt.local",   // developer_emails (matched to new team user!)
+                    "dewi.lestari@projectmgmt.local",   // ba_emails
                     "infra.lead@projectmgmt.local",     // infra_emails
                     "masterdata@projectmgmt.local",     // master_data_emails
-                    "tester.qa@projectmgmt.local",      // tester_emails
+                    "hendra.wijaya@projectmgmt.local",  // tester_emails
                     "techwriter@projectmgmt.local",     // technical_writer_emails
                     "qa.lead@projectmgmt.local",         // quality_assurance_emails
                     "ahmad.fauzi@projectmgmt.local",    // system_analyst_emails
@@ -578,10 +830,10 @@ namespace ProjectManagement.Api.Services
                     "2026-10-08",
                     "-",
                     "budi.santoso@projectmgmt.local",
-                    "siti.rahma@projectmgmt.local",
+                    "dewi.lestari@projectmgmt.local",
                     "-",
                     "-",
-                    "tester.qa@projectmgmt.local",
+                    "hendra.wijaya@projectmgmt.local",
                     "-",
                     "qa.lead@projectmgmt.local",
                     "ahmad.fauzi@projectmgmt.local",
@@ -593,7 +845,7 @@ namespace ProjectManagement.Api.Services
             };
             PopulateSheet(sheet1, "#4F46E5", sampleDataSheet1);
 
-            // Sheet 2: Internal CRM System
+            // Sheet 4: Internal CRM System (Task Sheet)
             var sheet2 = workbook.Worksheets.Add("CRM System");
             var sampleDataSheet2 = new[]
             {
@@ -612,10 +864,10 @@ namespace ProjectManagement.Api.Services
                     "2026-09-25",
                     "-",
                     "ahmad.fauzi@projectmgmt.local",
-                    "siti.rahma@projectmgmt.local",
+                    "dewi.lestari@projectmgmt.local",
                     "infra.lead@projectmgmt.local",
                     "-",
-                    "tester.qa@projectmgmt.local",
+                    "hendra.wijaya@projectmgmt.local",
                     "techwriter@projectmgmt.local",
                     "qa.lead@projectmgmt.local",
                     "ahmad.fauzi@projectmgmt.local",
@@ -639,10 +891,10 @@ namespace ProjectManagement.Api.Services
                     "2026-09-20",
                     "2026-09-18",
                     "budi.santoso@projectmgmt.local",
-                    "siti.rahma@projectmgmt.local",
+                    "dewi.lestari@projectmgmt.local",
                     "infra.lead@projectmgmt.local",
                     "-",
-                    "tester.qa@projectmgmt.local",
+                    "hendra.wijaya@projectmgmt.local",
                     "techwriter@projectmgmt.local",
                     "qa.lead@projectmgmt.local",
                     "ahmad.fauzi@projectmgmt.local",
@@ -653,6 +905,40 @@ namespace ProjectManagement.Api.Services
                 }
             };
             PopulateSheet(sheet2, "#0D9488", sampleDataSheet2);
+
+            // Sheet 5: Farhan Maulana (Sheet nama orang - sistem otomatis membuat user Farhan Maulana dan meng-assign tugasnya)
+            var sheet3 = workbook.Worksheets.Add("Farhan Maulana");
+            var sampleDataSheet3 = new[]
+            {
+                new[] {
+                    "1",
+                    "E-Commerce Mobile",
+                    "REQ-ECM-201",
+                    "Redesign Alur Checkout One-Click Payment",
+                    "InProgress",
+                    "High",
+                    "UI/UX Enhancement",
+                    "Checkout & Payment",
+                    "-",
+                    "70%",
+                    "2026-10-01",
+                    "2026-10-18",
+                    "-",
+                    "farhan.maulana@projectmgmt.local",
+                    "dewi.lestari@projectmgmt.local",
+                    "infra.lead@projectmgmt.local",
+                    "-",
+                    "hendra.wijaya@projectmgmt.local",
+                    "techwriter@projectmgmt.local",
+                    "qa.lead@projectmgmt.local",
+                    "ahmad.fauzi@projectmgmt.local",
+                    "-",
+                    "Implementasi tokenized credit card & Apple Pay / Google Pay SDK",
+                    "checkout_wireframe_v2.png",
+                    "ECM-CHK-01"
+                }
+            };
+            PopulateSheet(sheet3, "#D97706", sampleDataSheet3);
 
             using var memoryStream = new MemoryStream();
             workbook.SaveAs(memoryStream);
