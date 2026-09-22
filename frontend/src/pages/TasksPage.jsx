@@ -14,7 +14,11 @@ import {
   FileSpreadsheet,
   UploadCloud,
   AlertCircle,
-  Download
+  Download,
+  LayoutGrid,
+  Table,
+  X,
+  Trash2
 } from 'lucide-react';
 import api from '../utils/api';
 import Select2 from '../components/Select2';
@@ -31,6 +35,8 @@ export default function TasksPage() {
   const [masterMilestones, setMasterMilestones] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState('kanban'); // 'kanban' | 'grid'
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -213,6 +219,20 @@ export default function TasksPage() {
   const filteredTasks = tasks.filter(t => {
     if (selectedProjectId && t.projectId !== selectedProjectId) return false;
     if (selectedCategory && t.category !== selectedCategory) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const matchTitle = t.title?.toLowerCase().includes(q);
+      const matchProject = (t.projectName || t.projectCode)?.toLowerCase().includes(q);
+      const matchCategory = t.category?.toLowerCase().includes(q);
+      const matchMilestone = t.milestone?.toLowerCase().includes(q);
+      const matchAssignee = t.assigneeName?.toLowerCase().includes(q);
+      const matchDesc = t.description?.toLowerCase().includes(q);
+      const matchStatus = t.status?.toLowerCase().includes(q);
+      const matchPriority = t.priority?.toLowerCase().includes(q);
+      if (!matchTitle && !matchProject && !matchCategory && !matchMilestone && !matchAssignee && !matchDesc && !matchStatus && !matchPriority) {
+        return false;
+      }
+    }
     return true;
   });
 
@@ -278,10 +298,70 @@ export default function TasksPage() {
     <div className="page-body">
       <div className="page-header">
         <div>
-          <h1>Manajemen Tugas (Kanban Board)</h1>
-          <p>Lacak progres pekerjaan tim internal dan konsultan secara visual dan terstruktur.</p>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span>Manajemen Tugas</span>
+            <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-muted)' }}>
+              ({viewMode === 'kanban' ? 'Papan Kanban' : 'Tabel Grid'})
+            </span>
+          </h1>
+          <p>Lacak dan kelola progres pekerjaan tim secara visual (Kanban) atau terstruktur (Tabel Grid).</p>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* View Mode Toggle: Kanban vs Grid Table */}
+          <div style={{
+            display: 'inline-flex',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-md)',
+            padding: 3,
+            gap: 2
+          }}>
+            <button
+              type="button"
+              onClick={() => setViewMode('kanban')}
+              className="btn btn-sm"
+              style={{
+                background: viewMode === 'kanban' ? 'var(--primary)' : 'transparent',
+                color: viewMode === 'kanban' ? '#fff' : 'var(--text-secondary)',
+                border: 'none',
+                borderRadius: 'calc(var(--radius-md) - 3px)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <LayoutGrid size={15} />
+              <span>Kanban</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className="btn btn-sm"
+              style={{
+                background: viewMode === 'grid' ? 'var(--primary)' : 'transparent',
+                color: viewMode === 'grid' ? '#fff' : 'var(--text-secondary)',
+                border: 'none',
+                borderRadius: 'calc(var(--radius-md) - 3px)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Table size={15} />
+              <span>Tabel Grid</span>
+            </button>
+          </div>
+
           <button className="btn btn-secondary" onClick={fetchInitialData}>
             <RefreshCw size={16} />
             <span>Segarkan</span>
@@ -289,7 +369,7 @@ export default function TasksPage() {
           <button 
             className="btn btn-secondary" 
             onClick={() => {
-              setImportProjectId(selectedProjectId || (projects[0]?.id || null));
+              setImportProjectId(selectedProjectId || null);
               setImportFile(null);
               setShowImportModal(true);
             }}
@@ -309,112 +389,202 @@ export default function TasksPage() {
         </div>
       </div>
 
-      {/* Filter Bar */}
+      {/* Search & Filter Toolbar Above Grid / Kanban */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         gap: 16,
-        marginBottom: 24,
+        marginBottom: 20,
         padding: '12px 18px',
         background: 'var(--bg-card)',
         backdropFilter: 'var(--glass-blur)',
         borderRadius: 'var(--radius-md)',
         border: '1px solid var(--border-color)',
-        flexWrap: 'wrap'
+        flexWrap: 'wrap',
+        justifyContent: 'space-between'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.875rem', fontWeight: 600 }}>
-          <Filter size={16} />
-          <span>Filter:</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 280, flexWrap: 'wrap' }}>
+          {/* Real-time Search Box Above Grid */}
+          <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>
+            <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Cari tugas (judul, kode, proyek, PIC, kategori, milestone)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                paddingLeft: 36,
+                paddingRight: searchQuery ? 32 : 12,
+                height: 38,
+                fontSize: '0.85rem'
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{
+                  position: 'absolute',
+                  right: 10,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: 2,
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+                title="Hapus pencarian"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Project Filter */}
+          <div style={{ width: 220 }}>
+            <Select2
+              options={[{ value: null, label: 'Semua Proyek' }, ...projectOptions]}
+              value={selectedProjectId}
+              onChange={(val) => setSelectedProjectId(val)}
+              placeholder="Filter proyek..."
+            />
+          </div>
+
+          {/* Category Filter */}
+          <div style={{ width: 200 }}>
+            <Select2
+              options={[{ value: null, label: 'Semua Kategori' }, ...categoryOptions.filter(c => c.value)]}
+              value={selectedCategory}
+              onChange={(val) => setSelectedCategory(val)}
+              placeholder="Filter kategori..."
+            />
+          </div>
         </div>
-        <div style={{ width: 240 }}>
-          <Select2
-            options={[{ value: null, label: 'Semua Proyek' }, ...projectOptions]}
-            value={selectedProjectId}
-            onChange={(val) => setSelectedProjectId(val)}
-            placeholder="Pilih proyek..."
-          />
+
+        {/* Counter & Active Filter Indicators */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {(selectedProjectId || selectedCategory || searchQuery) && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setSelectedProjectId(null);
+                setSelectedCategory(null);
+                setSearchQuery('');
+              }}
+              style={{ fontSize: '0.78rem', padding: '4px 10px' }}
+            >
+              Reset Filter
+            </button>
+          )}
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+            Menampilkan <strong style={{ color: 'var(--text-primary)' }}>{filteredTasks.length}</strong> dari {tasks.length} tugas
+          </span>
         </div>
-        <div style={{ width: 220 }}>
-          <Select2
-            options={[{ value: null, label: 'Semua Kategori' }, ...categoryOptions.filter(c => c.value)]}
-            value={selectedCategory}
-            onChange={(val) => setSelectedCategory(val)}
-            placeholder="Pilih kategori..."
-          />
-        </div>
-        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-          Menampilkan {filteredTasks.length} tugas aktif
-        </span>
       </div>
 
-      {/* Kanban Columns */}
-      <div className="kanban-board">
-        {columns.map((col) => {
-          const colTasks = filteredTasks.filter(t => t.status === col.id);
-          return (
-            <div key={col.id} className="kanban-column">
-              <div className="kanban-header">
-                <div className="kanban-title" style={{ color: col.color }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: col.color }}></span>
-                  <span>{col.title}</span>
-                </div>
-                <span className="kanban-count">{colTasks.length}</span>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
-                {colTasks.length === 0 ? (
-                  <div style={{ padding: '24px 12px', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    Tidak ada tugas
-                  </div>
+      {/* Main Content: Either Grid Table View OR Kanban Columns */}
+      {viewMode === 'grid' ? (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="table-responsive">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 45, textAlign: 'center' }}>No</th>
+                  <th>Uraian Tugas</th>
+                  <th>Proyek</th>
+                  <th>Kategori & Milestone</th>
+                  <th>PIC / Assignee</th>
+                  <th>Prioritas</th>
+                  <th>Status</th>
+                  <th>Tenggat (Deadline)</th>
+                  <th style={{ textAlign: 'right', width: 130 }}>Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredTasks.length === 0 ? (
+                  <tr>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                        <Search size={32} style={{ opacity: 0.4 }} />
+                        <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                          Tidak ada tugas yang sesuai
+                        </div>
+                        <div style={{ fontSize: '0.82rem' }}>
+                          Coba sesuaikan kata kunci pencarian di atas atau bersihkan filter proyek/kategori.
+                        </div>
+                        {(selectedProjectId || selectedCategory || searchQuery) && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => { setSelectedProjectId(null); setSelectedCategory(null); setSearchQuery(''); }}
+                            style={{ marginTop: 4 }}
+                          >
+                            Hapus Semua Filter
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
                 ) : (
-                  colTasks.map((task) => (
-                    <div 
-                      key={task.id} 
-                      className="kanban-card"
+                  filteredTasks.map((task, idx) => (
+                    <tr 
+                      key={task.id}
                       style={{
-                        borderLeft: `4px solid ${task.projectColor || '#6366f1'}`,
-                        transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+                        borderLeft: `4px solid ${task.projectColor || '#6366f1'}`
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <td style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                        {idx + 1}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem', marginBottom: 2 }}>
+                          {task.title}
+                        </div>
+                        {task.description && (
+                          <div style={{
+                            fontSize: '0.78rem',
+                            color: 'var(--text-muted)',
+                            maxWidth: 380,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }} title={task.description}>
+                            {task.description}
+                          </div>
+                        )}
+                      </td>
+                      <td>
                         <span 
                           style={{ 
-                            fontSize: '0.65rem', 
+                            fontSize: '0.72rem', 
                             fontWeight: 700, 
-                            padding: '2px 7px',
+                            padding: '3px 8px',
                             borderRadius: '4px',
                             backgroundColor: `${task.projectColor || '#6366f1'}18`,
                             color: task.projectColor || '#6366f1',
                             border: `1px solid ${task.projectColor || '#6366f1'}40`,
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: 4
+                            gap: 5
                           }}
-                          title={`Proyek: ${task.projectName || task.projectCode}`}
+                          title={`Proyek: ${task.projectName}`}
                         >
                           <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: task.projectColor || '#6366f1' }}></span>
-                          {task.projectCode}
+                          <span>{task.projectCode || task.projectName}</span>
                         </span>
-                        <span className={`badge ${priorityBadgeClass(task.priority)}`}>
-                          {task.priority}
-                        </span>
-                      </div>
-
-                      <h4 style={{ fontSize: '0.925rem', fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
-                        {task.title}
-                      </h4>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.4 }}>
-                        {task.description}
-                      </p>
-
-                      {(task.category || task.milestone) && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
                           {task.category && (
                             <span 
                               style={{ 
-                                fontSize: '0.65rem', 
+                                fontSize: '0.68rem', 
                                 fontWeight: 700, 
-                                padding: '2px 6px', 
+                                padding: '2px 7px', 
                                 borderRadius: '4px', 
                                 background: 'rgba(99, 102, 241, 0.12)', 
                                 color: 'var(--primary)',
@@ -427,9 +597,9 @@ export default function TasksPage() {
                           {task.milestone && (
                             <span 
                               style={{ 
-                                fontSize: '0.65rem', 
+                                fontSize: '0.68rem', 
                                 fontWeight: 600, 
-                                padding: '2px 6px', 
+                                padding: '2px 7px', 
                                 borderRadius: '4px', 
                                 background: 'rgba(16, 185, 129, 0.12)', 
                                 color: 'var(--success)',
@@ -439,58 +609,251 @@ export default function TasksPage() {
                               🚩 {task.milestone}
                             </span>
                           )}
+                          {!task.category && !task.milestone && (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>-</span>
+                          )}
                         </div>
-                      )}
-
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: 10, marginTop: 4 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#4f46e5', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <div style={{
+                            width: 26,
+                            height: 26,
+                            borderRadius: '50%',
+                            background: '#4f46e5',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 'bold',
+                            fontSize: '0.75rem',
+                            flexShrink: 0
+                          }}>
                             {task.assigneeName ? task.assigneeName.charAt(0) : '?'}
                           </div>
-                          <span style={{ maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--text-primary)' }}>
                             {task.assigneeName || 'Belum ditugaskan'}
                           </span>
                         </div>
-                        {task.estimatedHours > 0 && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Clock size={13} />
-                            <span>{task.estimatedHours}h</span>
+                      </td>
+                      <td>
+                        <span className={`badge ${priorityBadgeClass(task.priority)}`} style={{ fontSize: '0.72rem' }}>
+                          {task.priority}
+                        </span>
+                      </td>
+                      <td>
+                        <select
+                          value={task.status}
+                          onChange={(e) => handleStatusChange(task.id, e.target.value)}
+                          className="form-control"
+                          style={{
+                            height: 28,
+                            padding: '2px 8px',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            color: task.status === 'Done' ? '#10b981' : task.status === 'InProgress' ? '#6366f1' : task.status === 'InReview' ? '#f59e0b' : 'var(--text-secondary)',
+                            background: task.status === 'Done' ? 'rgba(16, 185, 129, 0.1)' : task.status === 'InProgress' ? 'rgba(99, 102, 241, 0.1)' : task.status === 'InReview' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                            borderColor: 'transparent'
+                          }}
+                        >
+                          <option value="Todo">To Do</option>
+                          <option value="InProgress">In Progress</option>
+                          <option value="InReview">In Review</option>
+                          <option value="Done">Done</option>
+                        </select>
+                      </td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {task.dueDate ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <Calendar size={13} style={{ color: 'var(--text-muted)' }} />
+                            <span>{new Date(task.dueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
                           </div>
+                        ) : (
+                          <span>-</span>
                         )}
-                      </div>
-
-                      {/* Status Next Action Buttons */}
-                      <div style={{ display: 'flex', gap: 4, marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)', justifyContent: 'flex-end' }}>
-                        {col.id !== 'Todo' && (
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                          {task.status !== 'Done' && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => {
+                                const nextStatus = task.status === 'Todo' ? 'InProgress' : task.status === 'InProgress' ? 'InReview' : 'Done';
+                                handleStatusChange(task.id, nextStatus);
+                              }}
+                              title="Majukan Status"
+                              style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                            >
+                              <ArrowRight size={13} />
+                            </button>
+                          )}
                           <button
+                            type="button"
                             className="btn btn-secondary btn-sm"
-                            style={{ padding: '2px 6px', fontSize: '0.7rem' }}
-                            onClick={() => handleStatusChange(task.id, col.id === 'Done' ? 'InReview' : col.id === 'InReview' ? 'InProgress' : 'Todo')}
-                            title="Mundurkan status"
+                            onClick={() => handleDeleteTask(task.id, task.title)}
+                            title="Hapus Tugas"
+                            style={{ padding: '4px 8px', color: '#ef4444' }}
                           >
-                            ◀
+                            <Trash2 size={13} />
                           </button>
-                        )}
-                        {col.id !== 'Done' && (
-                          <button
-                            className="btn btn-primary btn-sm"
-                            style={{ padding: '2px 8px', fontSize: '0.7rem' }}
-                            onClick={() => handleStatusChange(task.id, col.id === 'Todo' ? 'InProgress' : col.id === 'InProgress' ? 'InReview' : 'Done')}
-                            title="Majukan status"
-                          >
-                            <span>Lanjut</span>
-                            <ArrowRight size={12} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                        </div>
+                      </td>
+                    </tr>
                   ))
                 )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* Kanban Columns */
+        <div className="kanban-board">
+          {columns.map((col) => {
+            const colTasks = filteredTasks.filter(t => t.status === col.id);
+            return (
+              <div key={col.id} className="kanban-column">
+                <div className="kanban-header">
+                  <div className="kanban-title" style={{ color: col.color }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: col.color }}></span>
+                    <span>{col.title}</span>
+                  </div>
+                  <span className="kanban-count">{colTasks.length}</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                  {colTasks.length === 0 ? (
+                    <div style={{ padding: '24px 12px', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Tidak ada tugas
+                    </div>
+                  ) : (
+                    colTasks.map((task) => (
+                      <div 
+                        key={task.id} 
+                        className="kanban-card"
+                        style={{
+                          borderLeft: `4px solid ${task.projectColor || '#6366f1'}`,
+                          transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                          <span 
+                            style={{ 
+                              fontSize: '0.65rem', 
+                              fontWeight: 700, 
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              backgroundColor: `${task.projectColor || '#6366f1'}18`,
+                              color: task.projectColor || '#6366f1',
+                              border: `1px solid ${task.projectColor || '#6366f1'}40`,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                            title={`Proyek: ${task.projectName || task.projectCode}`}
+                          >
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: task.projectColor || '#6366f1' }}></span>
+                            {task.projectCode}
+                          </span>
+                          <span className={`badge ${priorityBadgeClass(task.priority)}`}>
+                            {task.priority}
+                          </span>
+                        </div>
+
+                        <h4 style={{ fontSize: '0.925rem', fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                          {task.title}
+                        </h4>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.4 }}>
+                          {task.description}
+                        </p>
+
+                        {(task.category || task.milestone) && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                            {task.category && (
+                              <span 
+                                style={{ 
+                                  fontSize: '0.65rem', 
+                                  fontWeight: 700, 
+                                  padding: '2px 6px', 
+                                  borderRadius: '4px', 
+                                  background: 'rgba(99, 102, 241, 0.12)', 
+                                  color: 'var(--primary)',
+                                  border: '1px solid rgba(99, 102, 241, 0.25)' 
+                                }}
+                              >
+                                {task.category}
+                              </span>
+                            )}
+                            {task.milestone && (
+                              <span 
+                                style={{ 
+                                  fontSize: '0.65rem', 
+                                  fontWeight: 600, 
+                                  padding: '2px 6px', 
+                                  borderRadius: '4px', 
+                                  background: 'rgba(16, 185, 129, 0.12)', 
+                                  color: 'var(--success)',
+                                  border: '1px solid rgba(16, 185, 129, 0.25)' 
+                                }}
+                              >
+                                🚩 {task.milestone}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: 10, marginTop: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#4f46e5', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                              {task.assigneeName ? task.assigneeName.charAt(0) : '?'}
+                            </div>
+                            <span style={{ maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {task.assigneeName || 'Belum ditugaskan'}
+                            </span>
+                          </div>
+                          {task.estimatedHours > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <Clock size={13} />
+                              <span>{task.estimatedHours}h</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Status Next Action Buttons */}
+                        <div style={{ display: 'flex', gap: 4, marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)', justifyContent: 'flex-end' }}>
+                          {col.id !== 'Todo' && (
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ padding: '2px 6px', fontSize: '0.7rem' }}
+                              onClick={() => handleStatusChange(task.id, col.id === 'Done' ? 'InReview' : col.id === 'InReview' ? 'InProgress' : 'Todo')}
+                              title="Mundurkan status"
+                            >
+                              ◀
+                            </button>
+                          )}
+                          {col.id !== 'Done' && (
+                            <button
+                              className="btn btn-primary btn-sm"
+                              style={{ padding: '2px 8px', fontSize: '0.7rem' }}
+                              onClick={() => handleStatusChange(task.id, col.id === 'Todo' ? 'InProgress' : col.id === 'InProgress' ? 'InReview' : 'Done')}
+                              title="Majukan status"
+                            >
+                              <span>Lanjut</span>
+                              <ArrowRight size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Create Task Modal */}
       {showModal && (
@@ -774,8 +1137,9 @@ export default function TasksPage() {
                     <div style={{ marginTop: 4, lineHeight: 1.5 }}>
                       1. Kode Task &bull; <strong style={{ color: '#10b981' }}>2. Nama Project</strong> &bull; 3. Nama Task &bull; 4. Kategori &bull; 5. PIC &bull; 6. Prioritas &bull; 7. Status &bull; 8. Milestone SDLC &bull; 9. Tanggal Berakhir &bull; 10. Kendala &bull; 11. Solusi
                     </div>
-                    <div style={{ marginTop: 6, fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                      💡 Jika nama proyek pada Kolom ke-2 belum terdaftar di sistem, proyek baru akan otomatis dibuatkan.
+                    <div style={{ marginTop: 6, fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                      💡 <strong>Mendukung Multi-Sheet:</strong> Seluruh sheet dalam berkas Excel akan dibaca dan diverifikasi secara otomatis.<br />
+                      💡 Nama proyek di Kolom ke-2 yang belum terdaftar di sistem akan otomatis dibuatkan proyek baru.
                     </div>
                   </div>
                 </div>
