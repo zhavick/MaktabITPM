@@ -43,6 +43,15 @@ namespace ProjectManagement.Api.Models
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+        public bool IsPendingDeletion { get; set; } = false;
+        public int? DeletionRequestedById { get; set; }
+        public User? DeletionRequestedBy { get; set; }
+        [MaxLength(150)]
+        public string? DeletionRequestedByName { get; set; }
+        [MaxLength(500)]
+        public string? DeletionReason { get; set; }
+        public DateTime? DeletionRequestedAt { get; set; }
+
         public ICollection<TaskComment> Comments { get; set; } = new List<TaskComment>();
         public ICollection<TaskActivity> Activities { get; set; } = new List<TaskActivity>();
     }

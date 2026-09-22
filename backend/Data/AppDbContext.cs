@@ -73,6 +73,12 @@ namespace ProjectManagement.Api.Data
                 .HasForeignKey(t => t.AssigneeId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            modelBuilder.Entity<TaskItem>()
+                .HasOne(t => t.DeletionRequestedBy)
+                .WithMany()
+                .HasForeignKey(t => t.DeletionRequestedById)
+                .OnDelete(DeleteBehavior.SetNull);
+
             // TaskComment
             modelBuilder.Entity<TaskComment>()
                 .HasOne(tc => tc.Task)

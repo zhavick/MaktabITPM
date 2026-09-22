@@ -35,10 +35,19 @@ namespace ProjectManagement.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? projectId, [FromQuery] string? status, [FromQuery] int? assigneeId)
+        public async Task<IActionResult> GetAll(
+            [FromQuery] int? projectId, 
+            [FromQuery] string? status, 
+            [FromQuery] int? assigneeId,
+            [FromQuery] bool? pendingDeletion)
         {
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int.TryParse(userIdStr, out var currentUserId);
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "";
+            bool isGlobalManager = currentUserRole == "Admin" || currentUserRole == "ProjectManager" || currentUserRole == "Project Manager";
+
             var query = _context.Tasks
-                .Include(t => t.Project)
+                .Include(t => t.Project).ThenInclude(p => p.Members)
                 .Include(t => t.Assignee)
                 .AsQueryable();
 
@@ -50,6 +59,9 @@ namespace ProjectManagement.Api.Controllers
 
             if (assigneeId.HasValue)
                 query = query.Where(t => t.AssigneeId == assigneeId.Value);
+
+            if (pendingDeletion.HasValue && pendingDeletion.Value)
+                query = query.Where(t => t.IsPendingDeletion);
 
             var tasks = await query
                 .OrderByDescending(t => t.CreatedAt)
@@ -72,7 +84,13 @@ namespace ProjectManagement.Api.Controllers
                     DueDate = t.DueDate,
                     EstimatedHours = t.EstimatedHours,
                     CommentCount = t.Comments.Count,
-                    CreatedAt = t.CreatedAt
+                    CreatedAt = t.CreatedAt,
+                    IsPendingDeletion = t.IsPendingDeletion,
+                    DeletionRequestedById = t.DeletionRequestedById,
+                    DeletionRequestedByName = t.DeletionRequestedByName,
+                    DeletionReason = t.DeletionReason,
+                    DeletionRequestedAt = t.DeletionRequestedAt,
+                    CanApproveDeletion = isGlobalManager || (t.Project != null && (t.Project.CreatedByUserId == currentUserId || (t.Project.Members != null && t.Project.Members.Any(m => m.UserId == currentUserId && m.RoleInProject == "Manager"))))
                 })
                 .ToListAsync();
 
@@ -86,8 +104,11 @@ namespace ProjectManagement.Api.Controllers
             if (!int.TryParse(userIdStr, out var currentUserId))
                 return Unauthorized(new { success = false, message = "Pengguna tidak terautentikasi." });
 
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "";
+            bool isGlobalManager = currentUserRole == "Admin" || currentUserRole == "ProjectManager" || currentUserRole == "Project Manager";
+
             var query = _context.Tasks
-                .Include(t => t.Project)
+                .Include(t => t.Project).ThenInclude(p => p.Members)
                 .Include(t => t.Assignee)
                 .Where(t => t.AssigneeId == currentUserId)
                 .AsQueryable();
@@ -119,7 +140,13 @@ namespace ProjectManagement.Api.Controllers
                     DueDate = t.DueDate,
                     EstimatedHours = t.EstimatedHours,
                     CommentCount = t.Comments.Count,
-                    CreatedAt = t.CreatedAt
+                    CreatedAt = t.CreatedAt,
+                    IsPendingDeletion = t.IsPendingDeletion,
+                    DeletionRequestedById = t.DeletionRequestedById,
+                    DeletionRequestedByName = t.DeletionRequestedByName,
+                    DeletionReason = t.DeletionReason,
+                    DeletionRequestedAt = t.DeletionRequestedAt,
+                    CanApproveDeletion = isGlobalManager || (t.Project != null && (t.Project.CreatedByUserId == currentUserId || (t.Project.Members != null && t.Project.Members.Any(m => m.UserId == currentUserId && m.RoleInProject == "Manager"))))
                 })
                 .ToListAsync();
 
@@ -258,12 +285,20 @@ namespace ProjectManagement.Api.Controllers
         public async Task<IActionResult> GetById(int id)
         {
             var task = await _context.Tasks
-                .Include(t => t.Project)
+                .Include(t => t.Project).ThenInclude(p => p.Members)
                 .Include(t => t.Assignee)
+                .Include(t => t.Comments)
                 .FirstOrDefaultAsync(t => t.Id == id);
 
             if (task == null)
                 return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
+
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int.TryParse(userIdStr, out var currentUserId);
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "";
+            bool isGlobalManager = currentUserRole == "Admin" || currentUserRole == "ProjectManager" || currentUserRole == "Project Manager";
+
+            var canApprove = isGlobalManager || (task.Project != null && (task.Project.CreatedByUserId == currentUserId || (task.Project.Members != null && task.Project.Members.Any(m => m.UserId == currentUserId && m.RoleInProject == "Manager"))));
 
             var responseDto = new TaskResponseDto
             {
@@ -284,7 +319,13 @@ namespace ProjectManagement.Api.Controllers
                 DueDate = task.DueDate,
                 EstimatedHours = task.EstimatedHours,
                 CommentCount = task.Comments != null ? task.Comments.Count : 0,
-                CreatedAt = task.CreatedAt
+                CreatedAt = task.CreatedAt,
+                IsPendingDeletion = task.IsPendingDeletion,
+                DeletionRequestedById = task.DeletionRequestedById,
+                DeletionRequestedByName = task.DeletionRequestedByName,
+                DeletionReason = task.DeletionReason,
+                DeletionRequestedAt = task.DeletionRequestedAt,
+                CanApproveDeletion = canApprove
             };
 
             return Ok(new { success = true, data = responseDto });
@@ -529,18 +570,241 @@ namespace ProjectManagement.Api.Controllers
             return Ok(new { success = true, data = activities });
         }
 
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(int id)
+        private async Task<bool> CanDirectlyDeleteOrApproveTaskAsync(TaskItem task, int currentUserId, string currentUserRole)
         {
-            var task = await _context.Tasks.FindAsync(id);
+            if (currentUserRole == "Admin") return true;
+            if (currentUserRole == "ProjectManager" || currentUserRole == "Project Manager") return true;
+
+            var project = await _context.Projects
+                .Include(p => p.Members)
+                .FirstOrDefaultAsync(p => p.Id == task.ProjectId);
+
+            if (project != null)
+            {
+                if (project.CreatedByUserId == currentUserId) return true;
+
+                var member = project.Members.FirstOrDefault(m => m.UserId == currentUserId);
+                if (member != null && member.RoleInProject.Equals("Manager", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        [HttpPost("{id}/request-deletion")]
+        public async Task<IActionResult> RequestDeletion(int id, [FromBody] RequestTaskDeletionDto? dto)
+        {
+            var task = await _context.Tasks.Include(t => t.Project).FirstOrDefaultAsync(t => t.Id == id);
             if (task == null)
                 return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
+
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int.TryParse(userIdStr, out var currentUserId);
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name) ?? "Anggota Tim";
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "Member";
+
+            var reason = !string.IsNullOrWhiteSpace(dto?.Reason) ? dto.Reason.Trim() : "Permohonan penghapusan diajukan oleh anggota tim.";
+
+            task.IsPendingDeletion = true;
+            task.DeletionRequestedById = currentUserId;
+            task.DeletionRequestedByName = currentUserName;
+            task.DeletionReason = reason;
+            task.DeletionRequestedAt = DateTime.UtcNow;
+
+            _context.TaskActivities.Add(new TaskActivity
+            {
+                TaskId = id,
+                UserId = currentUserId,
+                ActionType = "DeletionRequested",
+                Description = $"{currentUserName} mengajukan permohonan penghapusan tugas. Alasan: \"{reason}\".",
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
+
+            await _auditService.LogAsync("TASK_DELETION_REQUESTED", "Tasks",
+                $"Permohonan hapus tugas '{task.Title}' diajukan oleh {currentUserName}. Alasan: {reason}.",
+                "Warning", null, currentUserName, currentUserRole);
+
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new
+            {
+                Type = "TaskUpdated",
+                TaskId = id,
+                Action = "DeletionRequested",
+                RequestedBy = currentUserName,
+                Reason = reason
+            });
+
+            return Ok(new
+            {
+                success = true,
+                message = "Permohonan penghapusan tugas telah diajukan dan sedang menunggu persetujuan Administrator atau Project Manager.",
+                data = new
+                {
+                    task.Id,
+                    task.Title,
+                    task.IsPendingDeletion,
+                    task.DeletionRequestedById,
+                    task.DeletionRequestedByName,
+                    task.DeletionReason,
+                    task.DeletionRequestedAt
+                }
+            });
+        }
+
+        [HttpPost("{id}/approve-deletion")]
+        public async Task<IActionResult> ApproveDeletion(int id)
+        {
+            var task = await _context.Tasks.Include(t => t.Project).FirstOrDefaultAsync(t => t.Id == id);
+            if (task == null)
+                return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
+
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int.TryParse(userIdStr, out var currentUserId);
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name) ?? "Administrator";
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "Admin";
+
+            var canApprove = await CanDirectlyDeleteOrApproveTaskAsync(task, currentUserId, currentUserRole);
+            if (!canApprove)
+                return StatusCode(403, new { success = false, message = "Hanya Administrator, Project Manager, atau Project Owner yang berhak menyetujui penghapusan tugas." });
+
+            var title = task.Title;
+            var requester = task.DeletionRequestedByName ?? "Member";
 
             _context.Tasks.Remove(task);
             await _context.SaveChangesAsync();
 
-            var currentUserName = User.FindFirstValue(ClaimTypes.Name);
-            await _auditService.LogAsync("TASK_DELETED", "Tasks", $"Tugas '{task.Title}' dihapus.", "Warning", null, currentUserName);
+            await _auditService.LogAsync("TASK_DELETION_APPROVED", "Tasks",
+                $"Persetujuan hapus tugas '{title}' (diajukan oleh {requester}) disetujui oleh {currentUserName}.",
+                "Warning", null, currentUserName, currentUserRole);
+
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new
+            {
+                Type = "TaskUpdated",
+                TaskId = id,
+                Action = "Deleted"
+            });
+
+            return Ok(new { success = true, message = $"Penghapusan tugas '{title}' berhasil disetujui dan dihapus secara permanen." });
+        }
+
+        [HttpPost("{id}/reject-deletion")]
+        public async Task<IActionResult> RejectDeletion(int id, [FromBody] RejectTaskDeletionDto? dto)
+        {
+            var task = await _context.Tasks.Include(t => t.Project).FirstOrDefaultAsync(t => t.Id == id);
+            if (task == null)
+                return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
+
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int.TryParse(userIdStr, out var currentUserId);
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name) ?? "Administrator";
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "Admin";
+
+            var canApprove = await CanDirectlyDeleteOrApproveTaskAsync(task, currentUserId, currentUserRole);
+            if (!canApprove)
+                return StatusCode(403, new { success = false, message = "Hanya Administrator, Project Manager, atau Project Owner yang berhak menolak penghapusan tugas." });
+
+            var rejectReason = !string.IsNullOrWhiteSpace(dto?.Reason) ? dto.Reason.Trim() : "Permohonan tidak disetujui oleh manajer proyek.";
+
+            task.IsPendingDeletion = false;
+            task.DeletionRequestedById = null;
+            task.DeletionRequestedByName = null;
+            task.DeletionReason = null;
+            task.DeletionRequestedAt = null;
+
+            _context.TaskActivities.Add(new TaskActivity
+            {
+                TaskId = id,
+                UserId = currentUserId,
+                ActionType = "DeletionRejected",
+                Description = $"{currentUserName} menolak pengajuan penghapusan tugas. Alasan penolakan: \"{rejectReason}\".",
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
+
+            await _auditService.LogAsync("TASK_DELETION_REJECTED", "Tasks",
+                $"Pengajuan hapus tugas '{task.Title}' ditolak oleh {currentUserName}. Alasan: {rejectReason}.",
+                "Info", null, currentUserName, currentUserRole);
+
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new
+            {
+                Type = "TaskUpdated",
+                TaskId = id,
+                Action = "DeletionRejected"
+            });
+
+            return Ok(new { success = true, message = "Pengajuan penghapusan tugas berhasil ditolak. Tugas tetap aktif.", reason = rejectReason });
+        }
+
+        [HttpPost("{id}/cancel-deletion-request")]
+        public async Task<IActionResult> CancelDeletionRequest(int id)
+        {
+            var task = await _context.Tasks.Include(t => t.Project).FirstOrDefaultAsync(t => t.Id == id);
+            if (task == null)
+                return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
+
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int.TryParse(userIdStr, out var currentUserId);
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name) ?? "Anggota Tim";
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "Member";
+
+            var canApprove = await CanDirectlyDeleteOrApproveTaskAsync(task, currentUserId, currentUserRole);
+            var isRequester = task.DeletionRequestedById == currentUserId;
+
+            if (!canApprove && !isRequester)
+                return StatusCode(403, new { success = false, message = "Anda tidak memiliki wewenang untuk membatalkan pengajuan ini." });
+
+            task.IsPendingDeletion = false;
+            task.DeletionRequestedById = null;
+            task.DeletionRequestedByName = null;
+            task.DeletionReason = null;
+            task.DeletionRequestedAt = null;
+
+            _context.TaskActivities.Add(new TaskActivity
+            {
+                TaskId = id,
+                UserId = currentUserId,
+                ActionType = "DeletionCancelled",
+                Description = $"{currentUserName} membatalkan permohonan penghapusan tugas.",
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
+
+            await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new
+            {
+                Type = "TaskUpdated",
+                TaskId = id,
+                Action = "DeletionCancelled"
+            });
+
+            return Ok(new { success = true, message = "Permohonan penghapusan tugas telah dibatalkan." });
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> Delete(int id, [FromQuery] string? reason)
+        {
+            var task = await _context.Tasks.Include(t => t.Project).FirstOrDefaultAsync(t => t.Id == id);
+            if (task == null)
+                return NotFound(new { success = false, message = "Tugas tidak ditemukan." });
+
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int.TryParse(userIdStr, out var currentUserId);
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name) ?? "Pengguna";
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "Member";
+
+            var canDirectlyDelete = await CanDirectlyDeleteOrApproveTaskAsync(task, currentUserId, currentUserRole);
+            if (!canDirectlyDelete)
+            {
+                // Member is requesting deletion!
+                return await RequestDeletion(id, new RequestTaskDeletionDto { Reason = reason });
+            }
+
+            _context.Tasks.Remove(task);
+            await _context.SaveChangesAsync();
+
+            await _auditService.LogAsync("TASK_DELETED", "Tasks", $"Tugas '{task.Title}' dihapus secara langsung oleh {currentUserName}.", "Warning", null, currentUserName, currentUserRole);
             await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new { Type = "TaskUpdated", TaskId = id, Action = "Deleted" });
 
             return Ok(new { success = true, message = "Tugas berhasil dihapus." });

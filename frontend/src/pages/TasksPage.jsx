@@ -27,11 +27,14 @@ import {
   UserCheck,
   MessageSquare,
   Send,
-  History
+  History,
+  AlertTriangle,
+  Check,
+  Ban
 } from 'lucide-react';
 import api from '../utils/api';
 import Select2 from '../components/Select2';
-import { showToast, confirmDialog, errorAlert } from '../utils/swal';
+import { showToast, confirmDialog, promptDialog, errorAlert } from '../utils/swal';
 import { useSync } from '../context/SyncContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -64,6 +67,7 @@ export default function TasksPage({ onlyMyTasks = false }) {
   const [masterMilestones, setMasterMilestones] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [filterPendingDeletion, setFilterPendingDeletion] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('kanban'); // 'kanban' | 'grid'
   const [loading, setLoading] = useState(true);
@@ -173,21 +177,175 @@ export default function TasksPage({ onlyMyTasks = false }) {
     }
   };
 
-  const handleDeleteTask = async (taskId, title) => {
+  const handleDeleteTask = async (task) => {
+    // If user has authority to delete directly (Admin, Project Manager, or Project Owner)
+    if (task.canApproveDeletion) {
+      const confirmed = await confirmDialog({
+        title: 'Hapus Tugas Permanen?',
+        text: `Tugas "${task.title}" akan dihapus permanen beserta seluruh riwayat aktivitas dan diskusinya.`,
+        icon: 'warning',
+        confirmButtonText: 'Ya, Hapus Permanen',
+        cancelButtonText: 'Batal',
+        confirmButtonColor: '#ef4444'
+      });
+      if (confirmed) {
+        try {
+          const res = await api.delete(`/tasks/${task.id}`);
+          if (res.data.success) {
+            setTasks(prev => prev.filter(t => t.id !== task.id));
+            showToast('Tugas berhasil dihapus permanen.');
+            if (editingTask?.id === task.id) {
+              setShowEditModal(false);
+              setEditingTask(null);
+            }
+          }
+        } catch (err) {
+          errorAlert('Gagal Menghapus', err.response?.data?.message || 'Gagal menghapus tugas.');
+        }
+      }
+    } else {
+      // Member requesting deletion with reason
+      const promptRes = await promptDialog({
+        title: 'Ajukan Penghapusan Tugas',
+        text: 'Sebagai anggota tim, penghapusan tugas memerlukan persetujuan dari Administrator atau Project Manager/Owner. Silakan cantumkan alasan penghapusan:',
+        inputPlaceholder: 'Contoh: Tugas ini duplikat dengan tugas lain, ruang lingkup dibatalkan klien, dll...',
+        confirmButtonText: 'Kirim Pengajuan Hapus',
+        confirmButtonColor: '#f59e0b'
+      });
+
+      if (promptRes.isConfirmed && promptRes.value) {
+        try {
+          const res = await api.post(`/tasks/${task.id}/request-deletion`, { reason: promptRes.value });
+          if (res.data.success) {
+            showToast(res.data.message || 'Permohonan penghapusan telah diajukan.');
+            setTasks(prev => prev.map(t => t.id === task.id ? { 
+              ...t, 
+              isPendingDeletion: true, 
+              deletionReason: promptRes.value,
+              deletionRequestedByName: user?.fullName || 'Saya',
+              deletionRequestedById: user?.id,
+              deletionRequestedAt: new Date().toISOString()
+            } : t));
+            if (editingTask?.id === task.id) {
+              setEditingTask(prev => ({
+                ...prev,
+                isPendingDeletion: true,
+                deletionReason: promptRes.value,
+                deletionRequestedByName: user?.fullName || 'Saya',
+                deletionRequestedById: user?.id,
+                deletionRequestedAt: new Date().toISOString()
+              }));
+              fetchTaskActivities(task.id);
+            }
+          }
+        } catch (err) {
+          errorAlert('Gagal Mengajukan', err.response?.data?.message || 'Gagal mengajukan permohonan hapus tugas.');
+        }
+      }
+    }
+  };
+
+  const handleApproveDeletion = async (task) => {
     const confirmed = await confirmDialog({
-      title: 'Hapus Tugas?',
-      text: `Tugas "${title}" akan dihapus secara permanen.`,
+      title: 'Setujui Penghapusan Tugas?',
+      text: `Tugas "${task.title}" yang diajukan oleh ${task.deletionRequestedByName || 'anggota tim'} akan dihapus secara permanen.`,
       icon: 'warning',
-      confirmButtonText: 'Hapus',
+      confirmButtonText: 'Ya, Setujui & Hapus',
+      cancelButtonText: 'Batal',
       confirmButtonColor: '#ef4444'
     });
     if (confirmed) {
       try {
-        await api.delete(`/tasks/${taskId}`);
-        setTasks(prev => prev.filter(t => t.id !== taskId));
-        showToast('Tugas berhasil dihapus.');
-      } catch {
-        showToast('Gagal menghapus tugas', 'error');
+        const res = await api.post(`/tasks/${task.id}/approve-deletion`);
+        if (res.data.success) {
+          showToast(res.data.message || 'Penghapusan tugas berhasil disetujui.');
+          setTasks(prev => prev.filter(t => t.id !== task.id));
+          if (editingTask?.id === task.id) {
+            setShowEditModal(false);
+            setEditingTask(null);
+          }
+        }
+      } catch (err) {
+        errorAlert('Gagal Menyetujui', err.response?.data?.message || 'Gagal menyetujui penghapusan tugas.');
+      }
+    }
+  };
+
+  const handleRejectDeletion = async (task) => {
+    const promptRes = await promptDialog({
+      title: 'Tolak Pengajuan Hapus',
+      text: `Masukkan alasan penolakan pengajuan hapus tugas "${task.title}":`,
+      inputPlaceholder: 'Contoh: Tugas ini masih dibutuhkan untuk pengujian QA...',
+      confirmButtonText: 'Tolak Pengajuan',
+      confirmButtonColor: '#64748b'
+    });
+    if (promptRes.isConfirmed && promptRes.value) {
+      try {
+        const res = await api.post(`/tasks/${task.id}/reject-deletion`, { reason: promptRes.value });
+        if (res.data.success) {
+          showToast(res.data.message || 'Pengajuan penghapusan ditolak. Tugas tetap aktif.');
+          setTasks(prev => prev.map(t => t.id === task.id ? { 
+            ...t, 
+            isPendingDeletion: false, 
+            deletionReason: null,
+            deletionRequestedByName: null,
+            deletionRequestedById: null,
+            deletionRequestedAt: null
+          } : t));
+          if (editingTask?.id === task.id) {
+            setEditingTask(prev => ({
+              ...prev,
+              isPendingDeletion: false,
+              deletionReason: null,
+              deletionRequestedByName: null,
+              deletionRequestedById: null,
+              deletionRequestedAt: null
+            }));
+            fetchTaskActivities(task.id);
+          }
+        }
+      } catch (err) {
+        errorAlert('Gagal Menolak', err.response?.data?.message || 'Gagal menolak pengajuan penghapusan.');
+      }
+    }
+  };
+
+  const handleCancelDeletionRequest = async (task) => {
+    const confirmed = await confirmDialog({
+      title: 'Batalkan Pengajuan Hapus?',
+      text: `Permohonan penghapusan tugas "${task.title}" akan dibatalkan dan status tugas dikembalikan normal.`,
+      icon: 'question',
+      confirmButtonText: 'Ya, Batalkan Pengajuan',
+      cancelButtonText: 'Kembali',
+      confirmButtonColor: '#6366f1'
+    });
+    if (confirmed) {
+      try {
+        const res = await api.post(`/tasks/${task.id}/cancel-deletion-request`);
+        if (res.data.success) {
+          showToast(res.data.message || 'Permohonan penghapusan tugas dibatalkan.');
+          setTasks(prev => prev.map(t => t.id === task.id ? { 
+            ...t, 
+            isPendingDeletion: false, 
+            deletionReason: null,
+            deletionRequestedByName: null,
+            deletionRequestedById: null,
+            deletionRequestedAt: null
+          } : t));
+          if (editingTask?.id === task.id) {
+            setEditingTask(prev => ({
+              ...prev,
+              isPendingDeletion: false,
+              deletionReason: null,
+              deletionRequestedByName: null,
+              deletionRequestedById: null,
+              deletionRequestedAt: null
+            }));
+            fetchTaskActivities(task.id);
+          }
+        }
+      } catch (err) {
+        errorAlert('Gagal Membatalkan', err.response?.data?.message || 'Gagal membatalkan pengajuan.');
       }
     }
   };
@@ -325,7 +483,13 @@ export default function TasksPage({ onlyMyTasks = false }) {
       assigneeId: task.assigneeId || null,
       dueDate: task.dueDate ? task.dueDate.slice(0, 10) : '',
       estimatedHours: task.estimatedHours || 0,
-      createdAt: task.createdAt
+      createdAt: task.createdAt,
+      isPendingDeletion: task.isPendingDeletion || false,
+      deletionRequestedById: task.deletionRequestedById || null,
+      deletionRequestedByName: task.deletionRequestedByName || null,
+      deletionReason: task.deletionReason || null,
+      deletionRequestedAt: task.deletionRequestedAt || null,
+      canApproveDeletion: task.canApproveDeletion || false
     });
     setModalTab(initialTab);
     setShowEditModal(true);
@@ -448,7 +612,10 @@ export default function TasksPage({ onlyMyTasks = false }) {
     { id: 'Done', title: 'Done', color: '#10b981' },
   ];
 
-  const filteredTasks = tasks.filter(t => {
+  const pendingDeletionCount = tasks.filter(t => t.isPendingDeletion).length;
+
+  const filteredTasks = tasks.filter((t) => {
+    if (filterPendingDeletion && !t.isPendingDeletion) return false;
     if (selectedProjectId && t.projectId !== selectedProjectId) return false;
     if (selectedCategory && t.category !== selectedCategory) return false;
     if (searchQuery.trim()) {
@@ -815,8 +982,34 @@ export default function TasksPage({ onlyMyTasks = false }) {
         </div>
 
         {/* Counter & Active Filter Indicators */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {(selectedProjectId || selectedCategory || searchQuery) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {pendingDeletionCount > 0 && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setFilterPendingDeletion(prev => !prev)}
+              style={{
+                background: filterPendingDeletion ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.15)',
+                color: filterPendingDeletion ? '#ef4444' : '#f59e0b',
+                border: filterPendingDeletion ? '1px solid #ef4444' : '1px solid rgba(245, 158, 11, 0.4)',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                padding: '5px 12px',
+                borderRadius: 'var(--radius-sm)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              title="Filter tugas yang sedang menunggu persetujuan penghapusan"
+            >
+              <AlertTriangle size={14} />
+              <span>Menunggu Approval ({pendingDeletionCount})</span>
+            </button>
+          )}
+
+          {(selectedProjectId || selectedCategory || searchQuery || filterPendingDeletion) && (
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -824,6 +1017,7 @@ export default function TasksPage({ onlyMyTasks = false }) {
                 setSelectedProjectId(null);
                 setSelectedCategory(null);
                 setSearchQuery('');
+                setFilterPendingDeletion(false);
               }}
               style={{ fontSize: '0.78rem', padding: '4px 10px' }}
             >
@@ -907,6 +1101,25 @@ export default function TasksPage({ onlyMyTasks = false }) {
                           <span style={{ textDecoration: 'none' }}>{task.title}</span>
                           <Edit3 size={13} style={{ opacity: 0.5, color: 'var(--primary)', flexShrink: 0 }} />
                         </div>
+                        {task.isPendingDeletion && (
+                          <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            background: 'rgba(245, 158, 11, 0.15)',
+                            color: '#f59e0b',
+                            border: '1px solid rgba(245, 158, 11, 0.35)',
+                            marginTop: 3
+                          }}>
+                            <AlertTriangle size={11} />
+                            <span>Menunggu Persetujuan Hapus</span>
+                            {task.deletionReason && <span style={{ fontWeight: 400, fontStyle: 'italic', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>: "{task.deletionReason}"</span>}
+                          </div>
+                        )}
                         {task.description && (
                           <div style={{
                             fontSize: '0.78rem',
@@ -1078,15 +1291,48 @@ export default function TasksPage({ onlyMyTasks = false }) {
                               <ArrowRight size={13} />
                             </button>
                           )}
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => handleDeleteTask(task.id, task.title)}
-                            title="Hapus Tugas"
-                            style={{ padding: '4px 8px', color: '#ef4444' }}
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          {task.isPendingDeletion && task.canApproveDeletion ? (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() => handleApproveDeletion(task)}
+                                title="Setujui Penghapusan Tugas"
+                                style={{ padding: '4px 8px', background: '#ef4444', color: '#fff', fontSize: '0.72rem' }}
+                              >
+                                <Check size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => handleRejectDeletion(task)}
+                                title="Tolak Pengajuan Hapus"
+                                style={{ padding: '4px 8px', fontSize: '0.72rem' }}
+                              >
+                                <X size={13} />
+                              </button>
+                            </>
+                          ) : task.isPendingDeletion && task.deletionRequestedById === user?.id ? (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => handleCancelDeletionRequest(task)}
+                              title="Batalkan Pengajuan Hapus"
+                              style={{ padding: '4px 8px', fontSize: '0.72rem', color: '#f59e0b' }}
+                            >
+                              <Ban size={13} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => handleDeleteTask(task)}
+                              title={task.canApproveDeletion ? "Hapus Tugas Permanen" : "Ajukan Penghapusan Tugas"}
+                              style={{ padding: '4px 8px', color: '#ef4444' }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1187,6 +1433,72 @@ export default function TasksPage({ onlyMyTasks = false }) {
                         >
                           {task.title}
                         </h4>
+
+                        {/* Pending Deletion Warning Box on Kanban Card */}
+                        {task.isPendingDeletion && (
+                          <div style={{
+                            background: 'rgba(245, 158, 11, 0.12)',
+                            border: '1px solid rgba(245, 158, 11, 0.35)',
+                            borderRadius: 6,
+                            padding: '6px 8px',
+                            marginBottom: 8,
+                            fontSize: '0.72rem'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#f59e0b', fontWeight: 700, gap: 4 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <AlertTriangle size={12} />
+                                <span>Menunggu Approval Hapus</span>
+                              </div>
+                              {task.canApproveDeletion ? (
+                                <div style={{ display: 'flex', gap: 3 }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleApproveDeletion(task);
+                                    }}
+                                    style={{ padding: '2px 5px', fontSize: '0.68rem', background: '#ef4444', color: '#fff' }}
+                                    title="Setujui Hapus"
+                                  >
+                                    <Check size={11} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRejectDeletion(task);
+                                    }}
+                                    style={{ padding: '2px 5px', fontSize: '0.68rem' }}
+                                    title="Tolak Pengajuan"
+                                  >
+                                    <X size={11} />
+                                  </button>
+                                </div>
+                              ) : (task.deletionRequestedById === user?.id && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCancelDeletionRequest(task);
+                                  }}
+                                  style={{ padding: '2px 5px', fontSize: '0.65rem' }}
+                                  title="Batalkan Pengajuan Hapus"
+                                >
+                                  Batal
+                                </button>
+                              ))}
+                            </div>
+                            {task.deletionReason && (
+                              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: 2, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                "{task.deletionReason}"
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.4 }}>
                           {task.description}
                         </p>
@@ -1393,6 +1705,82 @@ export default function TasksPage({ onlyMyTasks = false }) {
                 </button>
               </div>
             </div>
+
+            {/* Pending Deletion Warning Alert Banner inside Modal */}
+            {editingTask.isPendingDeletion && (
+              <div style={{
+                margin: '16px 24px 0',
+                padding: '12px 16px',
+                borderRadius: 'var(--radius-md)',
+                background: 'rgba(245, 158, 11, 0.12)',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12
+              }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: 1, minWidth: 260 }}>
+                  <AlertTriangle size={20} color="#f59e0b" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#f59e0b' }}>
+                      Permohonan Penghapusan Tugas Sedang Menunggu Persetujuan
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                      Diajukan oleh <strong>{editingTask.deletionRequestedByName || 'Anggota Tim'}</strong> {editingTask.deletionRequestedAt ? `(${formatRelativeTime(editingTask.deletionRequestedAt)})` : ''}
+                    </div>
+                    {editingTask.deletionReason && (
+                      <div style={{ 
+                        fontSize: '0.78rem', 
+                        color: 'var(--text-muted)', 
+                        marginTop: 4, 
+                        fontStyle: 'italic', 
+                        background: 'rgba(0,0,0,0.18)', 
+                        padding: '4px 10px', 
+                        borderRadius: 4,
+                        borderLeft: '2px solid #f59e0b'
+                      }}>
+                        "{editingTask.deletionReason}"
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Direct Approval Actions inside Modal Banner */}
+                {editingTask.canApproveDeletion ? (
+                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => handleApproveDeletion(editingTask)}
+                      style={{ background: '#ef4444', color: '#fff', fontSize: '0.78rem', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <Check size={14} />
+                      <span>Setujui Hapus</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleRejectDeletion(editingTask)}
+                      style={{ fontSize: '0.78rem', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <X size={14} />
+                      <span>Tolak</span>
+                    </button>
+                  </div>
+                ) : (editingTask.deletionRequestedById === user?.id && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleCancelDeletionRequest(editingTask)}
+                    style={{ fontSize: '0.78rem', padding: '6px 14px', color: '#f59e0b', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <Ban size={14} />
+                    <span>Batalkan Pengajuan Hapus</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Modal Tabs Navigation */}
             <div style={{
@@ -1648,18 +2036,59 @@ export default function TasksPage({ onlyMyTasks = false }) {
                 </div>
 
                 <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      handleDeleteTask(editingTask.id, editingTask.title);
-                      setShowEditModal(false);
-                    }}
-                    style={{ color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.08)' }}
-                  >
-                    <Trash2 size={15} />
-                    <span>Hapus Tugas</span>
-                  </button>
+                  {editingTask.isPendingDeletion ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {editingTask.canApproveDeletion ? (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => handleApproveDeletion(editingTask)}
+                            style={{ background: '#ef4444', color: '#fff', fontSize: '0.8rem' }}
+                          >
+                            <Check size={14} />
+                            <span>Setujui & Hapus</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleRejectDeletion(editingTask)}
+                            style={{ fontSize: '0.8rem' }}
+                          >
+                            <X size={14} />
+                            <span>Tolak Pengajuan</span>
+                          </button>
+                        </>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: '0.8rem', color: '#f59e0b', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                            <AlertTriangle size={14} />
+                            <span>Menunggu Persetujuan Hapus</span>
+                          </span>
+                          {editingTask.deletionRequestedById === user?.id && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => handleCancelDeletionRequest(editingTask)}
+                              style={{ fontSize: '0.75rem', padding: '3px 8px' }}
+                            >
+                              Batalkan
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleDeleteTask(editingTask)}
+                      style={{ color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.08)' }}
+                    >
+                      <Trash2 size={15} />
+                      <span>{editingTask.canApproveDeletion ? 'Hapus Tugas' : 'Ajukan Hapus Tugas'}</span>
+                    </button>
+                  )}
 
                   <div style={{ display: 'flex', gap: 10 }}>
                     <button

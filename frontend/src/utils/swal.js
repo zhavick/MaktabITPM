@@ -64,4 +64,39 @@ export const errorAlert = (title, text = '') => {
   });
 };
 
+export const promptDialog = async ({
+  title = 'Masukkan Keterangan',
+  text = '',
+  input = 'textarea',
+  inputPlaceholder = 'Tuliskan alasan...',
+  confirmButtonText = 'Kirim',
+  cancelButtonText = 'Batal',
+  confirmButtonColor = '#f59e0b',
+  cancelButtonColor = '#475569',
+  inputValidator = null
+}) => {
+  const result = await Swal.fire({
+    title,
+    text,
+    input,
+    inputPlaceholder,
+    showCancelButton: true,
+    confirmButtonColor,
+    cancelButtonColor,
+    confirmButtonText,
+    cancelButtonText,
+    reverseButtons: true,
+    inputValidator: inputValidator || ((value) => {
+      if (!value || !value.trim()) {
+        return 'Alasan tidak boleh kosong!';
+      }
+    })
+  });
+
+  return {
+    isConfirmed: result.isConfirmed,
+    value: result.value
+  };
+};
+
 export default Swal;

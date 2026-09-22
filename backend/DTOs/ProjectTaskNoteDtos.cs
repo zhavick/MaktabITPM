@@ -116,6 +116,25 @@ namespace ProjectManagement.Api.DTOs
         public decimal EstimatedHours { get; set; }
         public int CommentCount { get; set; }
         public DateTime CreatedAt { get; set; }
+
+        public bool IsPendingDeletion { get; set; }
+        public int? DeletionRequestedById { get; set; }
+        public string? DeletionRequestedByName { get; set; }
+        public string? DeletionReason { get; set; }
+        public DateTime? DeletionRequestedAt { get; set; }
+        public bool CanApproveDeletion { get; set; }
+    }
+
+    public class RequestTaskDeletionDto
+    {
+        [MaxLength(500)]
+        public string? Reason { get; set; }
+    }
+
+    public class RejectTaskDeletionDto
+    {
+        [MaxLength(500)]
+        public string? Reason { get; set; }
     }
 
     public class CreateTaskCommentDto

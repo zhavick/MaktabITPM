@@ -204,6 +204,11 @@ using (var scope = app.Services.CreateScope())
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Projects"" ADD COLUMN ""Color"" TEXT NULL DEFAULT '#4f46e5';"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""Category"" TEXT NULL;"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""Milestone"" TEXT NULL;"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""IsPendingDeletion"" INTEGER NOT NULL DEFAULT 0;"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""DeletionRequestedById"" INTEGER NULL;"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""DeletionRequestedByName"" TEXT NULL;"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""DeletionReason"" TEXT NULL;"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""DeletionRequestedAt"" TEXT NULL;"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tickets"" ADD COLUMN ""Category"" TEXT NULL;"); } catch { }
 
         AppDbContext.SeedData(db);
