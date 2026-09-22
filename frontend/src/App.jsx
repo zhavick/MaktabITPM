@@ -105,6 +105,14 @@ export default function App() {
               }
             />
             <Route
+              path="/my-tasks"
+              element={
+                <ProtectedLayout>
+                  <TasksPage onlyMyTasks={true} />
+                </ProtectedLayout>
+              }
+            />
+            <Route
               path="/tasks"
               element={
                 <ProtectedLayout>

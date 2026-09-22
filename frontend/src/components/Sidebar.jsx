@@ -41,7 +41,8 @@ export default function Sidebar() {
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-    { name: 'Manajemen Tugas', path: '/tasks', icon: CheckSquare },
+    { name: 'My Tasks', path: '/my-tasks', icon: UserCheck },
+    { name: 'Semua Tugas', path: '/tasks', icon: CheckSquare },
     { name: 'Catatan & Dokumen', path: '/notes', icon: FileText },
     { 
       name: isConsultant ? 'Upload Timesheet' : 'Timesheet Kerja', 

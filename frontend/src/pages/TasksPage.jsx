@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { 
   CheckSquare, 
   Plus, 
@@ -22,14 +23,20 @@ import {
   FileText,
   ChevronDown,
   Edit3,
-  Flag
+  Flag,
+  UserCheck
 } from 'lucide-react';
 import api from '../utils/api';
 import Select2 from '../components/Select2';
 import { showToast, confirmDialog, errorAlert } from '../utils/swal';
 import { useSync } from '../context/SyncContext';
+import { useAuth } from '../context/AuthContext';
 
-export default function TasksPage() {
+export default function TasksPage({ onlyMyTasks = false }) {
+  const location = useLocation();
+  const { user } = useAuth();
+  const isMyTasks = onlyMyTasks || location.pathname === '/my-tasks';
+  const tasksEndpoint = isMyTasks ? '/tasks/my-tasks' : '/tasks';
   const { syncTick, lastEvent } = useSync();
   const [tasks, setTasks] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -69,26 +76,26 @@ export default function TasksPage() {
 
   useEffect(() => {
     fetchInitialData();
-  }, []);
+  }, [isMyTasks]);
 
   // Real-time automatic background synchronization across multi-user sessions
   useEffect(() => {
     if (syncTick > 0 && lastEvent) {
       if (lastEvent.type?.startsWith('TASK_') || lastEvent.type === 'TaskUpdated' || lastEvent.type === 'TaskCreated') {
-        api.get('/tasks').then((res) => {
+        api.get(tasksEndpoint).then((res) => {
           if (res.data && res.data.data) {
             setTasks(res.data.data);
           }
         }).catch(() => {});
       }
     }
-  }, [syncTick]);
+  }, [syncTick, tasksEndpoint]);
 
   const fetchInitialData = async () => {
     setLoading(true);
     try {
       const [tasksRes, projectsRes, membersRes, masterRes] = await Promise.all([
-        api.get('/tasks'),
+        api.get(tasksEndpoint),
         api.get('/projects'),
         api.get('/members'),
         api.get('/master-data?isActive=true')
@@ -103,7 +110,11 @@ export default function TasksPage() {
       setMasterMilestones(masterItems.filter(i => i.type === 'Milestone'));
 
       if (projectsRes.data.data?.length > 0 && !newTask.projectId) {
-        setNewTask(prev => ({ ...prev, projectId: projectsRes.data.data[0].id }));
+        setNewTask(prev => ({ 
+          ...prev, 
+          projectId: projectsRes.data.data[0].id,
+          assigneeId: (isMyTasks && user?.id) ? user.id : prev.assigneeId
+        }));
       }
     } catch {
       showToast('Gagal memuat data tugas', 'error');
@@ -163,7 +174,7 @@ export default function TasksPage() {
           priority: 'Medium',
           category: '',
           milestone: '',
-          assigneeId: null,
+          assigneeId: (isMyTasks && user?.id) ? user.id : null,
           dueDate: '',
           estimatedHours: 8,
         });
@@ -225,6 +236,7 @@ export default function TasksPage() {
       setExporting(true);
       setShowExportMenu(false);
       const params = new URLSearchParams();
+      if (isMyTasks) params.append('onlyMyTasks', 'true');
       if (selectedProjectId) params.append('projectId', selectedProjectId);
       if (selectedCategory) params.append('category', selectedCategory);
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
@@ -244,7 +256,8 @@ export default function TasksPage() {
       const link = document.createElement('a');
       link.href = url;
       const dateStr = new Date().toISOString().slice(0, 10);
-      link.setAttribute('download', `Laporan_Tugas_${dateStr}.${ext}`);
+      const filenamePrefix = isMyTasks ? 'Laporan_Tugas_Saya' : 'Laporan_Tugas';
+      link.setAttribute('download', `${filenamePrefix}_${dateStr}.${ext}`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -405,12 +418,17 @@ export default function TasksPage() {
       <div className="page-header">
         <div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span>Manajemen Tugas</span>
+            {isMyTasks && <UserCheck size={26} color="var(--primary)" />}
+            <span>{isMyTasks ? 'My Tasks (Tugas Saya)' : 'Manajemen Tugas'}</span>
             <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-muted)' }}>
               ({viewMode === 'kanban' ? 'Papan Kanban' : 'Tabel Grid'})
             </span>
           </h1>
-          <p>Lacak dan kelola progres pekerjaan tim secara visual (Kanban) atau terstruktur (Tabel Grid).</p>
+          <p>
+            {isMyTasks 
+              ? 'Daftar tugas yang khusus ditugaskan kepada Anda. Menampilkan data personal tanpa memuat seluruh tugas tim.' 
+              : 'Lacak dan kelola progres pekerjaan tim secara visual (Kanban) atau terstruktur (Tabel Grid).'}
+          </p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           {/* View Mode Toggle: Kanban vs Grid Table */}

@@ -21,3 +21,6 @@ mysql_data/
 *.db-shm
 *.db-wal
 project_management.db
+
+# Scratch temp files
+scratch/

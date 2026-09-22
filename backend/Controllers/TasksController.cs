@@ -78,6 +78,52 @@ namespace ProjectManagement.Api.Controllers
             return Ok(new { success = true, data = tasks });
         }
 
+        [HttpGet("my-tasks")]
+        public async Task<IActionResult> GetMyTasks([FromQuery] int? projectId, [FromQuery] string? status)
+        {
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!int.TryParse(userIdStr, out var currentUserId))
+                return Unauthorized(new { success = false, message = "Pengguna tidak terautentikasi." });
+
+            var query = _context.Tasks
+                .Include(t => t.Project)
+                .Include(t => t.Assignee)
+                .Where(t => t.AssigneeId == currentUserId)
+                .AsQueryable();
+
+            if (projectId.HasValue && projectId.Value > 0)
+                query = query.Where(t => t.ProjectId == projectId.Value);
+
+            if (!string.IsNullOrWhiteSpace(status))
+                query = query.Where(t => t.Status == status);
+
+            var tasks = await query
+                .OrderByDescending(t => t.CreatedAt)
+                .Select(t => new TaskResponseDto
+                {
+                    Id = t.Id,
+                    ProjectId = t.ProjectId,
+                    ProjectName = t.Project != null ? t.Project.Name : "",
+                    ProjectCode = t.Project != null ? t.Project.Code : "",
+                    ProjectColor = t.Project != null ? t.Project.Color : "#4f46e5",
+                    Title = t.Title,
+                    Description = t.Description,
+                    Status = t.Status,
+                    Priority = t.Priority,
+                    Category = t.Category,
+                    Milestone = t.Milestone,
+                    AssigneeId = t.AssigneeId,
+                    AssigneeName = t.Assignee != null ? t.Assignee.FullName : null,
+                    AssigneeAvatar = t.Assignee != null ? t.Assignee.AvatarUrl : null,
+                    DueDate = t.DueDate,
+                    EstimatedHours = t.EstimatedHours,
+                    CreatedAt = t.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(new { success = true, data = tasks, isMyTasks = true, userId = currentUserId });
+        }
+
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateTaskDto dto)
         {
@@ -287,12 +333,22 @@ namespace ProjectManagement.Api.Controllers
             [FromQuery] string? category,
             [FromQuery] string? status,
             [FromQuery] string? search,
+            [FromQuery] bool onlyMyTasks = false,
             [FromQuery] string format = "xlsx")
         {
             var query = _context.Tasks
                 .Include(t => t.Project)
                 .Include(t => t.Assignee)
                 .AsQueryable();
+
+            if (onlyMyTasks)
+            {
+                var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (int.TryParse(userIdStr, out var currentUserId))
+                {
+                    query = query.Where(t => t.AssigneeId == currentUserId);
+                }
+            }
 
             if (projectId.HasValue && projectId.Value > 0)
                 query = query.Where(t => t.ProjectId == projectId.Value);
