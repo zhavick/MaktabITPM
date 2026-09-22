@@ -2649,10 +2649,10 @@ export default function TasksPage({ onlyMyTasks = false }) {
                     </div>
                     <div>
                       <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                        Deteksi Nama Proyek Otomatis (Kolom ke-2)
+                        Import Berkas Excel Multi-Sheet (25 Kolom Standar)
                       </div>
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-                        Nama proyek diambil langsung dari <strong>Kolom ke-2 (Kolom B)</strong> file Excel. Tidak perlu memilih proyek secara manual.
+                        Sistem membaca seluruh sheet dan memetakan data sesuai header standar 25 kolom resmi. Nama proyek diambil dari kolom <strong>project_name</strong>.
                       </div>
                     </div>
                   </div>
@@ -2670,15 +2670,15 @@ export default function TasksPage({ onlyMyTasks = false }) {
                       color: '#10b981',
                       background: 'rgba(16, 185, 129, 0.06)'
                     }}
-                    title="Unduh berkas format Excel resmi"
+                    title="Unduh berkas format Excel resmi dengan 25 kolom standar"
                   >
                     <Download size={14} />
-                    <span>Template Excel</span>
+                    <span>Template Excel (25 Kolom)</span>
                   </button>
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Berkas Excel (.xlsx)</label>
+                  <label className="form-label">Berkas Excel (.xlsx / .xls)</label>
                   <div
                     onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                     onDragLeave={() => setIsDragging(false)}
@@ -2690,14 +2690,14 @@ export default function TasksPage({ onlyMyTasks = false }) {
                         if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
                           setImportFile(file);
                         } else {
-                          errorAlert('Format Tidak Sesuai', 'Hanya berkas format .xlsx atau .xls yang diperbolehkan.');
+                          errorAlert('Format Tidak Sesuai', 'Hanya berkas format Excel (.xlsx atau .xls) yang diperbolehkan.');
                         }
                       }
                     }}
                     style={{
                       border: isDragging ? '2px dashed #10b981' : '2px dashed var(--border-color)',
                       borderRadius: 'var(--radius-md)',
-                      padding: '24px 16px',
+                      padding: '22px 16px',
                       textAlign: 'center',
                       background: isDragging ? 'rgba(16, 185, 129, 0.05)' : 'rgba(255, 255, 255, 0.02)',
                       cursor: 'pointer',
@@ -2708,15 +2708,20 @@ export default function TasksPage({ onlyMyTasks = false }) {
                     <input
                       id="excel-task-input"
                       type="file"
-                      accept=".xlsx, .xls"
+                      accept=".xlsx, .xls, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
                       style={{ display: 'none' }}
                       onChange={(e) => {
                         if (e.target.files && e.target.files[0]) {
-                          setImportFile(e.target.files[0]);
+                          const file = e.target.files[0];
+                          if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                            setImportFile(file);
+                          } else {
+                            errorAlert('Format Tidak Sesuai', 'Hanya berkas format Excel (.xlsx atau .xls) yang diperbolehkan.');
+                          }
                         }
                       }}
                     />
-                    <UploadCloud size={36} style={{ color: importFile ? '#10b981' : 'var(--text-muted)', marginBottom: 8 }} />
+                    <UploadCloud size={34} style={{ color: importFile ? '#10b981' : 'var(--text-muted)', marginBottom: 8 }} />
                     {importFile ? (
                       <div>
                         <div style={{ fontWeight: 600, color: '#10b981', fontSize: '0.95rem' }}>{importFile.name}</div>
@@ -2727,17 +2732,17 @@ export default function TasksPage({ onlyMyTasks = false }) {
                     ) : (
                       <div>
                         <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-                          Tarik berkas ke sini atau <span style={{ color: 'var(--primary)', textDecoration: 'underline' }}>Pilih File</span>
+                          Tarik berkas Excel ke sini atau <span style={{ color: 'var(--primary)', textDecoration: 'underline' }}>Pilih File</span>
                         </div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                          Mendukung format .xlsx (Excel Worksheets)
+                          Mendukung format .xlsx / .xls (Worksheet Microsoft Excel)
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Information Callout */}
+                {/* Information Callout with 25 Headers Spec */}
                 <div style={{
                   background: 'rgba(99, 102, 241, 0.08)',
                   border: '1px solid rgba(99, 102, 241, 0.2)',
@@ -2750,14 +2755,51 @@ export default function TasksPage({ onlyMyTasks = false }) {
                   alignItems: 'flex-start'
                 }}>
                   <AlertCircle size={18} style={{ color: '#818cf8', flexShrink: 0, marginTop: 2 }} />
-                  <div>
-                    <strong style={{ color: 'var(--text-primary)' }}>Struktur Kolom Excel:</strong>
-                    <div style={{ marginTop: 4, lineHeight: 1.5 }}>
-                      1. Kode Task &bull; <strong style={{ color: '#10b981' }}>2. Nama Project</strong> &bull; 3. Nama Task &bull; 4. Kategori &bull; 5. PIC &bull; 6. Prioritas &bull; 7. Status &bull; 8. Milestone SDLC &bull; 9. Tanggal Berakhir &bull; 10. Kendala &bull; 11. Solusi
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <strong style={{ color: 'var(--text-primary)' }}>Header Kolom Excel Wajib (25 Kolom):</strong>
+                      <span style={{ fontSize: '0.72rem', background: 'rgba(99, 102, 241, 0.2)', padding: '1px 6px', borderRadius: 4, color: '#818cf8', fontWeight: 600 }}>25 Kolom Standar</span>
                     </div>
+                    
+                    <div style={{ 
+                      display: 'flex', 
+                      flexWrap: 'wrap', 
+                      gap: 4, 
+                      marginTop: 6, 
+                      maxHeight: 110, 
+                      overflowY: 'auto',
+                      padding: '4px',
+                      background: 'rgba(0, 0, 0, 0.15)',
+                      borderRadius: 4
+                    }}>
+                      {[
+                        'No.', 'project_name', 'requirement_code', 'title', 'status', 
+                        'priority', 'jenis_task', 'module_name', 'bug_type', 'progress', 
+                        'start_date', 'due_date', 'completed_date', 'developer_emails', 'ba_emails', 
+                        'infra_emails', 'master_data_emails', 'tester_emails', 'technical_writer_emails', 'quality_assurance_emails', 
+                        'system_analyst_emails', 'kendala', 'solusi', 'evidence', 'kode_task'
+                      ].map((colName, idx) => (
+                        <span 
+                          key={colName}
+                          style={{
+                            fontSize: '0.7rem',
+                            fontFamily: 'monospace',
+                            padding: '2px 5px',
+                            borderRadius: 3,
+                            background: colName === 'title' || colName === 'project_name' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                            color: colName === 'title' || colName === 'project_name' ? '#10b981' : 'var(--text-primary)',
+                            border: colName === 'title' || colName === 'project_name' ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(255, 255, 255, 0.05)'
+                          }}
+                          title={`Kolom ke-${idx + 1}: ${colName}`}
+                        >
+                          {idx + 1}. {colName}
+                        </span>
+                      ))}
+                    </div>
+
                     <div style={{ marginTop: 6, fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                      💡 <strong>Mendukung Multi-Sheet:</strong> Seluruh sheet dalam berkas Excel akan dibaca dan diverifikasi secara otomatis.<br />
-                      💡 Nama proyek di Kolom ke-2 yang belum terdaftar di sistem akan otomatis dibuatkan proyek baru.
+                      💡 <strong>Mendukung Multi-Sheet:</strong> Seluruh sheet dalam berkas Excel akan diproses secara otomatis.<br />
+                      💡 Nama proyek di <code>project_name</code> yang belum terdaftar akan otomatis dibuatkan entitas baru di sistem.
                     </div>
                   </div>
                 </div>

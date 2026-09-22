@@ -922,11 +922,14 @@ namespace ProjectManagement.Api.Controllers
         public async Task<IActionResult> ImportExcel([FromForm] TaskExcelImportDto dto)
         {
             if (dto.File == null || dto.File.Length == 0)
-                return BadRequest(new { success = false, message = "Silakan unggah berkas Excel (.xlsx)." });
+                return BadRequest(new { success = false, message = "Silakan unggah berkas Excel (.xlsx atau .xls)." });
 
-            var ext = Path.GetExtension(dto.File.FileName).ToLower();
+            var ext = Path.GetExtension(dto.File.FileName).ToLowerInvariant();
             if (ext != ".xlsx" && ext != ".xls")
-                return BadRequest(new { success = false, message = "Hanya berkas format Excel (.xlsx, .xls) yang didukung." });
+                return BadRequest(new { 
+                    success = false, 
+                    message = "Format berkas tidak valid. Pastikan berkas yang diimpor adalah file Excel dengan ekstensi .xlsx atau .xls." 
+                });
 
             var users = await _context.Users.ToListAsync();
             var allProjects = await _context.Projects.ToListAsync();
@@ -940,13 +943,34 @@ namespace ProjectManagement.Api.Controllers
             }
 
             List<ParsedTaskItem> parsedItems;
-            using (var stream = dto.File.OpenReadStream())
+            try
             {
-                parsedItems = _importService.ParseTasksWithProjectFromExcel(stream, users, fallbackProjectName);
+                using (var stream = dto.File.OpenReadStream())
+                {
+                    parsedItems = _importService.ParseTasksWithProjectFromExcel(stream, users, fallbackProjectName);
+                }
+            }
+            catch (FormatException fEx)
+            {
+                return BadRequest(new { success = false, message = fEx.Message });
+            }
+            catch (InvalidDataException iEx)
+            {
+                return BadRequest(new { success = false, message = iEx.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { 
+                    success = false, 
+                    message = $"Gagal membaca berkas Excel: {ex.Message}. Pastikan berkas merupakan format Excel (.xlsx/.xls) yang valid." 
+                });
             }
 
             if (parsedItems.Count == 0)
-                return BadRequest(new { success = false, message = "Tidak ada baris tugas yang berhasil dibaca dari berkas Excel tersebut. Pastikan berkas memiliki kolom 'Nama Task'." });
+                return BadRequest(new { 
+                    success = false, 
+                    message = "Tidak ada baris data tugas yang valid ditemukan pada berkas Excel tersebut. Pastikan berkas memiliki baris data di bawah header resmi." 
+                });
 
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
             int currentUserId = int.TryParse(userIdStr, out var pId) ? pId : 1;

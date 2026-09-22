@@ -38,258 +38,444 @@ namespace ProjectManagement.Api.Services
             return parsed.Select(p => p.Task).ToList();
         }
 
+        public static readonly string[] ExpectedExcelHeaders = new[]
+        {
+            "No.",
+            "project_name",
+            "requirement_code",
+            "title",
+            "status",
+            "priority",
+            "jenis_task",
+            "module_name",
+            "bug_type",
+            "progress",
+            "start_date",
+            "due_date",
+            "completed_date",
+            "developer_emails",
+            "ba_emails",
+            "infra_emails",
+            "master_data_emails",
+            "tester_emails",
+            "technical_writer_emails",
+            "quality_assurance_emails",
+            "system_analyst_emails",
+            "kendala",
+            "solusi",
+            "evidence",
+            "kode_task"
+        };
+
+        private static string NormalizeHeader(string header)
+        {
+            if (string.IsNullOrWhiteSpace(header)) return string.Empty;
+            return new string(header.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+        }
+
         public List<ParsedTaskItem> ParseTasksWithProjectFromExcel(Stream fileStream, List<User> users, string? defaultProjectName = null)
         {
             var results = new List<ParsedTaskItem>();
-            using var workbook = new XLWorkbook(fileStream);
+            XLWorkbook workbook;
 
-            // User requirement: Iterate and parse EVERY worksheet in the Excel workbook
-            foreach (var worksheet in workbook.Worksheets)
+            try
             {
-                var rows = worksheet.RangeUsed()?.RowsUsed()?.ToList();
-                if (rows == null || rows.Count <= 1) continue; // Skip empty sheets or single-header-only sheets
+                workbook = new XLWorkbook(fileStream);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidDataException("Berkas yang diunggah bukan merupakan berkas Excel (.xlsx / .xls) yang valid atau berkas mengalami kerusakan (corrupted).", ex);
+            }
 
-                // Map header names to column indexes (1-based) for this specific worksheet
-                var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                var firstRow = rows.FirstOrDefault();
-                if (firstRow == null) continue;
+            using (workbook)
+            {
+                bool anyValidSheetFound = false;
 
-                foreach (var cell in firstRow.CellsUsed())
+                // User requirement: Iterate and parse EVERY worksheet in the Excel workbook
+                foreach (var worksheet in workbook.Worksheets)
                 {
-                    var val = cell.GetString().Trim();
-                    if (!string.IsNullOrEmpty(val))
-                    {
-                        headerMap[val] = cell.Address.ColumnNumber;
-                    }
-                }
+                    var rows = worksheet.RangeUsed()?.RowsUsed()?.ToList();
+                    if (rows == null || rows.Count <= 1) continue; // Skip empty sheets or single-header-only sheets
 
-                int GetCol(params string[] aliases)
-                {
-                    foreach (var alias in aliases)
-                    {
-                        if (headerMap.TryGetValue(alias, out var col))
-                            return col;
-                        // Check partial match
-                        var key = headerMap.Keys.FirstOrDefault(k => k.IndexOf(alias, StringComparison.OrdinalIgnoreCase) >= 0);
-                        if (key != null) return headerMap[key];
-                    }
-                    return -1;
-                }
+                    // Map header names to column indexes (1-based) for this specific worksheet
+                    var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    var firstRow = rows.FirstOrDefault();
+                    if (firstRow == null) continue;
 
-                int colCode = GetCol("Kode Task", "Kode");
-                int colProject = GetCol("Nama Project", "Project", "Proyek", "Nama Proyek");
-                int colTitle = GetCol("Nama Task", "Task", "Title", "Nama", "Uraian", "Deskripsi", "Judul", "Aktivitas");
-                int colCategory = GetCol("Kategori", "Category");
-                int colPic = GetCol("PIC", "Assignee", "Penanggung Jawab", "Petugas");
-                int colPriority = GetCol("Prioritas", "Priority");
-                int colStatus = GetCol("Status");
-                int colProgress = GetCol("Progress (%)", "Progress");
-                int colMilestone = GetCol("Milestone SDLC", "Milestone", "Tahapan");
-                int colStartDate = GetCol("Tanggal Mulai", "Start Date", "Mulai");
-                int colDueDate = GetCol("Tanggal Berakhir (Deadline)", "Deadline", "Due Date", "Tanggal Berakhir", "Target Selesai");
-                int colKendala = GetCol("Kendala", "Blocker", "Issue");
-                int colSolusi = GetCol("Solusi", "Solution", "Catatan");
-
-                string GetCellString(IXLRangeRow row, int col)
-                {
-                    if (col <= 0) return string.Empty;
-                    try
+                    foreach (var cell in firstRow.CellsUsed())
                     {
-                        var cell = row.Cell(col);
-                        var str = cell.GetString().Trim();
-                        if (string.IsNullOrEmpty(str))
+                        var rawVal = cell.GetString().Trim();
+                        var normVal = NormalizeHeader(rawVal);
+                        if (!string.IsNullOrEmpty(normVal) && !headerMap.ContainsKey(normVal))
                         {
-                            str = cell.GetFormattedString().Trim();
+                            headerMap[normVal] = cell.Address.ColumnNumber;
                         }
-                        return str;
                     }
-                    catch
+
+                    int GetCol(params string[] aliases)
                     {
-                        return string.Empty;
+                        foreach (var alias in aliases)
+                        {
+                            var normAlias = NormalizeHeader(alias);
+                            if (headerMap.TryGetValue(normAlias, out var col))
+                                return col;
+                            
+                            // Check partial contains match
+                            var key = headerMap.Keys.FirstOrDefault(k => k.Contains(normAlias) || normAlias.Contains(k));
+                            if (key != null) return headerMap[key];
+                        }
+                        return -1;
                     }
-                }
 
-                bool isHeader = true;
-                string lastSeenProject = string.Empty;
+                    // Map all 25 specific headers requested by user
+                    int colNo = GetCol("No.", "No");
+                    int colProject = GetCol("project_name", "project name", "nama project", "nama proyek", "project", "proyek");
+                    int colReqCode = GetCol("requirement_code", "requirement code", "req code", "no requirement");
+                    int colTitle = GetCol("title", "nama task", "task title", "task name", "judul", "uraian", "nama", "deskripsi");
+                    int colStatus = GetCol("status", "task status");
+                    int colPriority = GetCol("priority", "prioritas");
+                    int colJenisTask = GetCol("jenis_task", "jenis task", "kategori", "category", "tipe task");
+                    int colModuleName = GetCol("module_name", "module name", "nama modul", "modul", "milestone", "milestone sdlc");
+                    int colBugType = GetCol("bug_type", "bug type", "tipe bug", "jenis bug");
+                    int colProgress = GetCol("progress", "progres", "progress (%)", "kemajuan");
+                    int colStartDate = GetCol("start_date", "start date", "tanggal mulai", "tgl mulai", "mulai");
+                    int colDueDate = GetCol("due_date", "due date", "deadline", "tanggal berakhir", "tgl berakhir", "target selesai");
+                    int colCompletedDate = GetCol("completed_date", "completed date", "tanggal selesai", "tgl selesai", "selesai");
+                    int colDevEmails = GetCol("developer_emails", "developer emails", "developer email", "developer", "dev emails", "programmer", "pic", "assignee");
+                    int colBaEmails = GetCol("ba_emails", "ba emails", "ba email", "business analyst");
+                    int colInfraEmails = GetCol("infra_emails", "infra emails", "infra email", "infrastructure", "devops");
+                    int colMasterDataEmails = GetCol("master_data_emails", "master data emails", "master data", "masterdata");
+                    int colTesterEmails = GetCol("tester_emails", "tester emails", "tester email", "tester", "manual tester");
+                    int colTechWriterEmails = GetCol("technical_writer_emails", "technical writer emails", "technical writer", "tech writer", "writer");
+                    int colQaEmails = GetCol("quality_assurance_emails", "quality assurance emails", "qa emails", "quality assurance", "qa");
+                    int colSaEmails = GetCol("system_analyst_emails", "system analyst emails", "sa emails", "system analyst", "sa");
+                    int colKendala = GetCol("kendala", "hambatan", "blocker", "issue", "issues");
+                    int colSolusi = GetCol("solusi", "solution", "penanganan", "catatan");
+                    int colEvidence = GetCol("evidence", "bukti", "lampiran", "referensi", "attachment");
+                    int colKodeTask = GetCol("kode_task", "kode task", "task code", "kode");
 
-                foreach (var row in rows)
-                {
-                    if (isHeader)
+                    // Validate header structure: at least 'title' must be present, or column 4/2
+                    if (colTitle <= 0 && colProject <= 0 && colKodeTask <= 0)
                     {
-                        isHeader = false;
+                        // This worksheet does not contain valid project task headers, skip sheet
                         continue;
                     }
 
-                    // Title resolution: check colTitle header first, or fallback to col 3, col 4, or col 1
-                    var title = GetCellString(row, colTitle);
-                    if (string.IsNullOrWhiteSpace(title))
-                    {
-                        title = GetCellString(row, 3);
-                        if (string.IsNullOrWhiteSpace(title)) title = GetCellString(row, 4);
-                        if (string.IsNullOrWhiteSpace(title)) title = GetCellString(row, 1);
-                    }
-                    if (string.IsNullOrWhiteSpace(title)) continue;
+                    anyValidSheetFound = true;
 
-                    // Project Name resolution:
-                    // Priority 1: Column 2 (Column B) as explicitly specified
-                    var projInFile = GetCellString(row, 2);
-                    if (string.IsNullOrWhiteSpace(projInFile) && colProject > 0)
+                    string GetCellString(IXLRangeRow row, int col)
                     {
-                        projInFile = GetCellString(row, colProject);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(projInFile))
-                    {
-                        lastSeenProject = projInFile;
-                    }
-                    else if (!string.IsNullOrWhiteSpace(lastSeenProject))
-                    {
-                        projInFile = lastSeenProject;
-                    }
-                    else if (!string.IsNullOrWhiteSpace(defaultProjectName))
-                    {
-                        projInFile = defaultProjectName;
-                    }
-                    else if (!string.IsNullOrWhiteSpace(worksheet.Name) && !worksheet.Name.StartsWith("Sheet", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Smart fallback: use worksheet name if not generic
-                        projInFile = worksheet.Name;
-                    }
-                    else
-                    {
-                        projInFile = "Proyek Utama";
-                    }
-
-                    var code = colCode > 0 ? GetCellString(row, colCode) : string.Empty;
-                    var category = GetCellString(row, colCategory);
-                    var pic = GetCellString(row, colPic);
-                    var priorityStr = GetCellString(row, colPriority);
-                    var statusStr = GetCellString(row, colStatus);
-                    var progress = GetCellString(row, colProgress);
-                    var milestone = GetCellString(row, colMilestone);
-                    var startDateStr = GetCellString(row, colStartDate);
-                    var deadlineStr = GetCellString(row, colDueDate);
-                    var kendala = GetCellString(row, colKendala);
-                    var solusi = GetCellString(row, colSolusi);
-
-                    // Priority mapping
-                    var priority = "Medium";
-                    if (!string.IsNullOrWhiteSpace(priorityStr))
-                    {
-                        if (priorityStr.Equals("Critical", StringComparison.OrdinalIgnoreCase) || priorityStr.Equals("Urgent", StringComparison.OrdinalIgnoreCase) || priorityStr.Equals("Mendesak", StringComparison.OrdinalIgnoreCase))
-                            priority = "Urgent";
-                        else if (priorityStr.Equals("High", StringComparison.OrdinalIgnoreCase) || priorityStr.Equals("Tinggi", StringComparison.OrdinalIgnoreCase))
-                            priority = "High";
-                        else if (priorityStr.Equals("Low", StringComparison.OrdinalIgnoreCase) || priorityStr.Equals("Rendah", StringComparison.OrdinalIgnoreCase))
-                            priority = "Low";
-                        else
-                            priority = "Medium";
-                    }
-
-                    // Status mapping
-                    var status = "Todo";
-                    if (!string.IsNullOrWhiteSpace(statusStr))
-                    {
-                        if (statusStr.Equals("Done", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("Selesai", StringComparison.OrdinalIgnoreCase))
-                            status = "Done";
-                        else if (statusStr.Equals("InProgress", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("In Progress", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("Sedang Dikerjakan", StringComparison.OrdinalIgnoreCase))
-                            status = "InProgress";
-                        else if (statusStr.Equals("InReview", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("In Review", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("Review", StringComparison.OrdinalIgnoreCase))
-                            status = "InReview";
-                        else
-                            status = "Todo";
-                    }
-
-                    // Assignee matching
-                    int? assigneeId = null;
-                    if (!string.IsNullOrWhiteSpace(pic) && users != null)
-                    {
-                        var matched = users.FirstOrDefault(u =>
-                            u.FullName.Equals(pic, StringComparison.OrdinalIgnoreCase) ||
-                            u.FullName.IndexOf(pic, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            pic.IndexOf(u.FullName, StringComparison.OrdinalIgnoreCase) >= 0);
-
-                        if (matched != null)
+                        if (col <= 0) return string.Empty;
+                        try
                         {
-                            assigneeId = matched.Id;
+                            var cell = row.Cell(col);
+                            var str = cell.GetString().Trim();
+                            if (string.IsNullOrEmpty(str))
+                            {
+                                str = cell.GetFormattedString().Trim();
+                            }
+                            return str;
+                        }
+                        catch
+                        {
+                            return string.Empty;
                         }
                     }
 
-                    // Due date parsing
-                    DateTime? dueDate = null;
-                    if (!string.IsNullOrWhiteSpace(deadlineStr))
+                    // Helper to match user by email or name from delimited string
+                    User? ResolveUserFromEmails(string? emailList)
                     {
-                        if (DateTime.TryParse(deadlineStr, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ||
-                            DateTime.TryParse(deadlineStr, out d))
+                        if (string.IsNullOrWhiteSpace(emailList) || emailList.Equals("-") || users == null)
+                            return null;
+
+                        var tokens = emailList.Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries)
+                                              .Select(t => t.Trim())
+                                              .Where(t => !string.IsNullOrEmpty(t));
+
+                        foreach (var token in tokens)
                         {
-                            dueDate = DateTime.SpecifyKind(d, DateTimeKind.Utc);
+                            // Match by email first
+                            var byEmail = users.FirstOrDefault(u => u.Email.Equals(token, StringComparison.OrdinalIgnoreCase));
+                            if (byEmail != null) return byEmail;
+
+                            // Match by full name
+                            var byName = users.FirstOrDefault(u => 
+                                u.FullName.Equals(token, StringComparison.OrdinalIgnoreCase) ||
+                                u.FullName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                token.IndexOf(u.FullName, StringComparison.OrdinalIgnoreCase) >= 0);
+                            if (byName != null) return byName;
                         }
+                        return null;
                     }
 
-                    // Title assembly with Code if present
-                    var finalTitle = !string.IsNullOrWhiteSpace(code) && !code.Equals("-")
-                        ? $"[{code}] {title}"
-                        : title;
-                    if (finalTitle.Length > 500)
-                        finalTitle = finalTitle.Substring(0, 500);
+                    bool isHeader = true;
+                    string lastSeenProject = string.Empty;
 
-                    // Build rich formatted description
-                    var descBuilder = new StringBuilder();
-                    var metaTags = new List<string>();
-                    if (!string.IsNullOrWhiteSpace(projInFile)) metaTags.Add($"Proyek: {projInFile}");
-                    if (!string.IsNullOrWhiteSpace(worksheet.Name)) metaTags.Add($"Sheet: {worksheet.Name}");
-                    if (!string.IsNullOrWhiteSpace(category)) metaTags.Add($"Kategori: {category}");
-                    if (!string.IsNullOrWhiteSpace(milestone)) metaTags.Add($"Milestone: {milestone}");
-                    if (!string.IsNullOrWhiteSpace(progress) && !progress.Equals("0")) metaTags.Add($"Progress: {progress}%");
-                    if (!string.IsNullOrWhiteSpace(pic)) metaTags.Add($"PIC: {pic}");
-                    if (!string.IsNullOrWhiteSpace(startDateStr)) metaTags.Add($"Tgl Mulai: {startDateStr}");
-
-                    if (metaTags.Count > 0)
+                    foreach (var row in rows)
                     {
-                        descBuilder.AppendLine($"📌 [{string.Join(" | ", metaTags)}]");
-                        descBuilder.AppendLine();
+                        if (isHeader)
+                        {
+                            isHeader = false;
+                            continue;
+                        }
+
+                        // Title resolution: check colTitle header first, or fallback to col 4 or col 3
+                        var title = GetCellString(row, colTitle);
+                        if (string.IsNullOrWhiteSpace(title))
+                        {
+                            title = GetCellString(row, 4);
+                            if (string.IsNullOrWhiteSpace(title)) title = GetCellString(row, 3);
+                            if (string.IsNullOrWhiteSpace(title)) title = GetCellString(row, 1);
+                        }
+                        if (string.IsNullOrWhiteSpace(title)) continue;
+
+                        // Project Name resolution:
+                        // Priority 1: Column mapped as colProject or Column 2
+                        var projInFile = colProject > 0 ? GetCellString(row, colProject) : GetCellString(row, 2);
+                        if (string.IsNullOrWhiteSpace(projInFile))
+                        {
+                            projInFile = GetCellString(row, 2);
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(projInFile))
+                        {
+                            lastSeenProject = projInFile;
+                        }
+                        else if (!string.IsNullOrWhiteSpace(lastSeenProject))
+                        {
+                            projInFile = lastSeenProject;
+                        }
+                        else if (!string.IsNullOrWhiteSpace(defaultProjectName))
+                        {
+                            projInFile = defaultProjectName;
+                        }
+                        else if (!string.IsNullOrWhiteSpace(worksheet.Name) && !worksheet.Name.StartsWith("Sheet", StringComparison.OrdinalIgnoreCase))
+                        {
+                            projInFile = worksheet.Name;
+                        }
+                        else
+                        {
+                            projInFile = "Proyek Utama";
+                        }
+
+                        var reqCode = colReqCode > 0 ? GetCellString(row, colReqCode) : string.Empty;
+                        var kodeTask = colKodeTask > 0 ? GetCellString(row, colKodeTask) : string.Empty;
+                        var statusStr = colStatus > 0 ? GetCellString(row, colStatus) : string.Empty;
+                        var priorityStr = colPriority > 0 ? GetCellString(row, colPriority) : string.Empty;
+                        var jenisTask = colJenisTask > 0 ? GetCellString(row, colJenisTask) : string.Empty;
+                        var moduleName = colModuleName > 0 ? GetCellString(row, colModuleName) : string.Empty;
+                        var bugType = colBugType > 0 ? GetCellString(row, colBugType) : string.Empty;
+                        var progress = colProgress > 0 ? GetCellString(row, colProgress) : string.Empty;
+                        var startDateStr = colStartDate > 0 ? GetCellString(row, colStartDate) : string.Empty;
+                        var dueDateStr = colDueDate > 0 ? GetCellString(row, colDueDate) : string.Empty;
+                        var completedDateStr = colCompletedDate > 0 ? GetCellString(row, colCompletedDate) : string.Empty;
+
+                        // Email roles
+                        var devEmails = colDevEmails > 0 ? GetCellString(row, colDevEmails) : string.Empty;
+                        var baEmails = colBaEmails > 0 ? GetCellString(row, colBaEmails) : string.Empty;
+                        var infraEmails = colInfraEmails > 0 ? GetCellString(row, colInfraEmails) : string.Empty;
+                        var masterDataEmails = colMasterDataEmails > 0 ? GetCellString(row, colMasterDataEmails) : string.Empty;
+                        var testerEmails = colTesterEmails > 0 ? GetCellString(row, colTesterEmails) : string.Empty;
+                        var techWriterEmails = colTechWriterEmails > 0 ? GetCellString(row, colTechWriterEmails) : string.Empty;
+                        var qaEmails = colQaEmails > 0 ? GetCellString(row, colQaEmails) : string.Empty;
+                        var saEmails = colSaEmails > 0 ? GetCellString(row, colSaEmails) : string.Empty;
+
+                        var kendala = colKendala > 0 ? GetCellString(row, colKendala) : string.Empty;
+                        var solusi = colSolusi > 0 ? GetCellString(row, colSolusi) : string.Empty;
+                        var evidence = colEvidence > 0 ? GetCellString(row, colEvidence) : string.Empty;
+
+                        // Priority mapping
+                        var priority = "Medium";
+                        if (!string.IsNullOrWhiteSpace(priorityStr))
+                        {
+                            if (priorityStr.Equals("Critical", StringComparison.OrdinalIgnoreCase) || priorityStr.Equals("Urgent", StringComparison.OrdinalIgnoreCase) || priorityStr.Equals("Mendesak", StringComparison.OrdinalIgnoreCase) || priorityStr.Equals("Kritis", StringComparison.OrdinalIgnoreCase))
+                                priority = "Urgent";
+                            else if (priorityStr.Equals("High", StringComparison.OrdinalIgnoreCase) || priorityStr.Equals("Tinggi", StringComparison.OrdinalIgnoreCase))
+                                priority = "High";
+                            else if (priorityStr.Equals("Low", StringComparison.OrdinalIgnoreCase) || priorityStr.Equals("Rendah", StringComparison.OrdinalIgnoreCase))
+                                priority = "Low";
+                            else
+                                priority = "Medium";
+                        }
+
+                        // Status mapping
+                        var status = "Todo";
+                        if (!string.IsNullOrWhiteSpace(statusStr))
+                        {
+                            if (statusStr.Equals("Done", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("Selesai", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("Completed", StringComparison.OrdinalIgnoreCase))
+                                status = "Done";
+                            else if (statusStr.Equals("InProgress", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("In Progress", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("Sedang Dikerjakan", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("WIP", StringComparison.OrdinalIgnoreCase))
+                                status = "InProgress";
+                            else if (statusStr.Equals("InReview", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("In Review", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("Review", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("QA", StringComparison.OrdinalIgnoreCase) || statusStr.Equals("Testing", StringComparison.OrdinalIgnoreCase))
+                                status = "InReview";
+                            else
+                                status = "Todo";
+                        }
+
+                        // Assignee matching from emails
+                        int? assigneeId = null;
+                        var matchedUser = ResolveUserFromEmails(devEmails)
+                                       ?? ResolveUserFromEmails(saEmails)
+                                       ?? ResolveUserFromEmails(baEmails)
+                                       ?? ResolveUserFromEmails(qaEmails)
+                                       ?? ResolveUserFromEmails(testerEmails);
+
+                        if (matchedUser != null)
+                        {
+                            assigneeId = matchedUser.Id;
+                        }
+
+                        // Due date parsing
+                        DateTime? dueDate = null;
+                        if (!string.IsNullOrWhiteSpace(dueDateStr))
+                        {
+                            if (DateTime.TryParse(dueDateStr, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ||
+                                DateTime.TryParse(dueDateStr, out d))
+                            {
+                                dueDate = DateTime.SpecifyKind(d, DateTimeKind.Utc);
+                            }
+                        }
+
+                        // Title assembly with Code if present
+                        var finalTitle = title;
+                        if (!string.IsNullOrWhiteSpace(kodeTask) && !kodeTask.Equals("-"))
+                        {
+                            if (!finalTitle.StartsWith($"[{kodeTask}]", StringComparison.OrdinalIgnoreCase))
+                            {
+                                finalTitle = $"[{kodeTask}] {finalTitle}";
+                            }
+                        }
+                        else if (!string.IsNullOrWhiteSpace(reqCode) && !reqCode.Equals("-"))
+                        {
+                            if (!finalTitle.StartsWith($"[{reqCode}]", StringComparison.OrdinalIgnoreCase))
+                            {
+                                finalTitle = $"[{reqCode}] {finalTitle}";
+                            }
+                        }
+                        if (finalTitle.Length > 500)
+                            finalTitle = finalTitle.Substring(0, 500);
+
+                        // Build rich formatted description encompassing all 25 header columns
+                        var descBuilder = new StringBuilder();
+
+                        // Header Metadata Tags
+                        var metaTags = new List<string>();
+                        if (!string.IsNullOrWhiteSpace(projInFile)) metaTags.Add($"Proyek: {projInFile}");
+                        if (!string.IsNullOrWhiteSpace(kodeTask) && !kodeTask.Equals("-")) metaTags.Add($"Kode: {kodeTask}");
+                        if (!string.IsNullOrWhiteSpace(reqCode) && !reqCode.Equals("-")) metaTags.Add($"Req: {reqCode}");
+                        if (!string.IsNullOrWhiteSpace(jenisTask)) metaTags.Add($"Jenis: {jenisTask}");
+                        if (!string.IsNullOrWhiteSpace(moduleName)) metaTags.Add($"Modul: {moduleName}");
+                        if (!string.IsNullOrWhiteSpace(progress) && !progress.Equals("0")) metaTags.Add($"Progress: {progress.TrimEnd('%')}%");
+                        if (!string.IsNullOrWhiteSpace(bugType) && !bugType.Equals("-")) metaTags.Add($"Bug: {bugType}");
+
+                        if (metaTags.Count > 0)
+                        {
+                            descBuilder.AppendLine($"📌 [{string.Join(" | ", metaTags)}]");
+                            descBuilder.AppendLine();
+                        }
+
+                        // Schedule dates
+                        var dateParts = new List<string>();
+                        if (!string.IsNullOrWhiteSpace(startDateStr)) dateParts.Add($"Mulai: {startDateStr}");
+                        if (!string.IsNullOrWhiteSpace(dueDateStr)) dateParts.Add($"Deadline: {dueDateStr}");
+                        if (!string.IsNullOrWhiteSpace(completedDateStr) && !completedDateStr.Equals("-")) dateParts.Add($"Selesai: {completedDateStr}");
+
+                        if (dateParts.Count > 0)
+                        {
+                            descBuilder.AppendLine($"⏱️ **Jadwal & Target**: {string.Join(" • ", dateParts)}");
+                            descBuilder.AppendLine();
+                        }
+
+                        // Stakeholders & Team Emails
+                        var teamList = new List<string>();
+                        void AddTeam(string roleLabel, string emails)
+                        {
+                            if (!string.IsNullOrWhiteSpace(emails) && !emails.Equals("-"))
+                                teamList.Add($"• **{roleLabel}**: {emails}");
+                        }
+
+                        AddTeam("Developer", devEmails);
+                        AddTeam("Business Analyst", baEmails);
+                        AddTeam("System Analyst", saEmails);
+                        AddTeam("Quality Assurance", qaEmails);
+                        AddTeam("Tester", testerEmails);
+                        AddTeam("Infrastructure / DevOps", infraEmails);
+                        AddTeam("Master Data", masterDataEmails);
+                        AddTeam("Technical Writer", techWriterEmails);
+
+                        if (teamList.Count > 0)
+                        {
+                            descBuilder.AppendLine("👥 **Tim Terkait (Stakeholders)**:");
+                            foreach (var member in teamList)
+                            {
+                                descBuilder.AppendLine(member);
+                            }
+                            descBuilder.AppendLine();
+                        }
+
+                        // Kendala / Blocker
+                        if (!string.IsNullOrWhiteSpace(kendala) && !kendala.Equals("-"))
+                        {
+                            descBuilder.AppendLine("⚠️ **Kendala / Blocker**:");
+                            descBuilder.AppendLine(kendala);
+                            descBuilder.AppendLine();
+                        }
+
+                        // Solusi / Action Plan
+                        if (!string.IsNullOrWhiteSpace(solusi) && !solusi.Equals("-"))
+                        {
+                            descBuilder.AppendLine("💡 **Solusi / Tindak Lanjut**:");
+                            descBuilder.AppendLine(solusi);
+                            descBuilder.AppendLine();
+                        }
+
+                        // Evidence / Link
+                        if (!string.IsNullOrWhiteSpace(evidence) && !evidence.Equals("-"))
+                        {
+                            descBuilder.AppendLine("📎 **Evidence / Bukti Pendukung**:");
+                            descBuilder.AppendLine(evidence);
+                            descBuilder.AppendLine();
+                        }
+
+                        var finalDesc = descBuilder.ToString().Trim();
+                        if (string.IsNullOrWhiteSpace(finalDesc))
+                        {
+                            finalDesc = !string.IsNullOrWhiteSpace(jenisTask) 
+                                ? $"Tugas '{title}' ({jenisTask}) diimpor dari berkas Excel ({worksheet.Name})."
+                                : $"Tugas '{title}' diimpor dari berkas Excel ({worksheet.Name}).";
+                        }
+
+                        var task = new TaskItem
+                        {
+                            ProjectId = 0, // Assigned dynamically by controller based on ProjectName
+                            Title = finalTitle,
+                            Description = finalDesc,
+                            Category = !string.IsNullOrWhiteSpace(jenisTask) ? jenisTask : null,
+                            Milestone = !string.IsNullOrWhiteSpace(moduleName) ? moduleName : null,
+                            Status = status,
+                            Priority = priority,
+                            AssigneeId = assigneeId,
+                            DueDate = dueDate,
+                            EstimatedHours = 8.00m,
+                            CreatedAt = DateTime.UtcNow
+                        };
+
+                        results.Add(new ParsedTaskItem
+                        {
+                            ProjectName = projInFile,
+                            Task = task,
+                            SheetName = worksheet.Name
+                        });
                     }
+                }
 
-                    if (!string.IsNullOrWhiteSpace(kendala) && !kendala.Equals("-"))
-                    {
-                        descBuilder.AppendLine("⚠️ Kendala:");
-                        descBuilder.AppendLine(kendala);
-                        descBuilder.AppendLine();
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(solusi) && !solusi.Equals("-"))
-                    {
-                        descBuilder.AppendLine("💡 Solusi / Catatan:");
-                        descBuilder.AppendLine(solusi);
-                    }
-
-                    var finalDesc = descBuilder.ToString().Trim();
-                    if (string.IsNullOrWhiteSpace(finalDesc))
-                    {
-                        finalDesc = !string.IsNullOrWhiteSpace(category) ? $"Tugas kategori {category} diimpor dari Excel ({worksheet.Name})." : $"Tugas diimpor dari Excel ({worksheet.Name}).";
-                    }
-
-                    var task = new TaskItem
-                    {
-                        ProjectId = 0, // Assigned dynamically by controller based on ProjectName
-                        Title = finalTitle,
-                        Description = finalDesc,
-                        Category = !string.IsNullOrWhiteSpace(category) ? category : null,
-                        Milestone = !string.IsNullOrWhiteSpace(milestone) ? milestone : null,
-                        Status = status,
-                        Priority = priority,
-                        AssigneeId = assigneeId,
-                        DueDate = dueDate,
-                        EstimatedHours = 8.00m,
-                        CreatedAt = DateTime.UtcNow
-                    };
-
-                    results.Add(new ParsedTaskItem
-                    {
-                        ProjectName = projInFile,
-                        Task = task,
-                        SheetName = worksheet.Name
-                    });
+                if (!anyValidSheetFound)
+                {
+                    throw new FormatException(
+                        "Header file Excel tidak sesuai. File Excel wajib mengikuti 25 kolom berikut: " +
+                        string.Join(", ", ExpectedExcelHeaders) +
+                        ". Silakan unduh Template Excel resmi untuk panduan format."
+                    );
                 }
             }
 
@@ -300,19 +486,7 @@ namespace ProjectManagement.Api.Services
         {
             using var workbook = new XLWorkbook();
 
-            string[] headers = {
-                "Kode Task",
-                "Nama Project",
-                "Nama Task",
-                "Kategori",
-                "PIC",
-                "Prioritas",
-                "Status",
-                "Milestone SDLC",
-                "Tanggal Berakhir (Deadline)",
-                "Kendala",
-                "Solusi"
-            };
+            string[] headers = ExpectedExcelHeaders;
 
             void PopulateSheet(IXLWorksheet worksheet, string headerColor, string[][] sampleData)
             {
@@ -321,12 +495,13 @@ namespace ProjectManagement.Api.Services
                     var cell = worksheet.Cell(1, i + 1);
                     cell.Value = headers[i];
                     cell.Style.Font.Bold = true;
+                    cell.Style.Font.FontSize = 10;
                     cell.Style.Font.FontColor = XLColor.White;
                     cell.Style.Fill.BackgroundColor = XLColor.FromHtml(headerColor);
                     cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                     cell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
                 }
-                worksheet.Row(1).Height = 26;
+                worksheet.Row(1).Height = 28;
 
                 for (int r = 0; r < sampleData.Length; r++)
                 {
@@ -334,31 +509,148 @@ namespace ProjectManagement.Api.Services
                     var rowNum = r + 2;
                     for (int c = 0; c < rowData.Length; c++)
                     {
-                        worksheet.Cell(rowNum, c + 1).Value = rowData[c];
+                        var cell = worksheet.Cell(rowNum, c + 1);
+                        cell.Value = rowData[c];
+                        cell.Style.Font.FontSize = 9.5;
+                        cell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+                        // Align numbers / codes / status to center
+                        if (c == 0 || c == 2 || c == 4 || c == 5 || c == 9 || c == 10 || c == 11 || c == 12 || c == 24)
+                        {
+                            cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                        }
                     }
-                    worksheet.Row(rowNum).Height = 20;
+                    worksheet.Row(rowNum).Height = 22;
                 }
 
                 worksheet.Columns().AdjustToContents();
-                worksheet.Column(2).Width = 26;
-                worksheet.Column(3).Width = 35;
+                worksheet.Column(2).Width = 24; // project_name
+                worksheet.Column(4).Width = 36; // title
+                worksheet.Column(14).Width = 28; // developer_emails
+                worksheet.Column(22).Width = 32; // kendala
+                worksheet.Column(23).Width = 32; // solusi
+                worksheet.Column(24).Width = 28; // evidence
             }
 
             // Sheet 1: NextGen Mobile Banking
             var sheet1 = workbook.Worksheets.Add("Mobile Banking");
             var sampleDataSheet1 = new[]
             {
-                new[] { "TSK-001", "NextGen Mobile Banking", "Integrasi Biometric Auth & FaceID", "Backend", "Budi Santoso", "High", "Todo", "Pengembangan & Integrasi API", "2026-10-15", "-", "Gunakan standar FIDO2" },
-                new[] { "TSK-002", "NextGen Mobile Banking", "Desain UI Halaman Transfer Antar Bank", "Frontend", "Siti Rahma", "Medium", "InProgress", "Perancangan FSD & TSD", "2026-10-20", "-", "-" }
+                new[] {
+                    "1",                                // No.
+                    "NextGen Mobile Banking",           // project_name
+                    "REQ-MB-001",                       // requirement_code
+                    "Implementasi Biometric Auth & FaceID", // title
+                    "InProgress",                       // status
+                    "High",                             // priority
+                    "Enhancement",                      // jenis_task
+                    "Authentication",                   // module_name
+                    "-",                                // bug_type
+                    "45%",                              // progress
+                    "2026-10-01",                       // start_date
+                    "2026-10-15",                       // due_date
+                    "-",                                // completed_date
+                    "budi.santoso@projectmgmt.local",   // developer_emails
+                    "siti.rahma@projectmgmt.local",     // ba_emails
+                    "infra.lead@projectmgmt.local",     // infra_emails
+                    "masterdata@projectmgmt.local",     // master_data_emails
+                    "tester.qa@projectmgmt.local",      // tester_emails
+                    "techwriter@projectmgmt.local",     // technical_writer_emails
+                    "qa.lead@projectmgmt.local",         // quality_assurance_emails
+                    "ahmad.fauzi@projectmgmt.local",    // system_analyst_emails
+                    "Penyesuaian SDK Biometric pada Android versi lama", // kendala
+                    "Gunakan AndroidX Biometric fallback library",       // solusi
+                    "https://jira.internal/browse/REQ-MB-001",           // evidence
+                    "TSK-MB-01"                         // kode_task
+                },
+                new[] {
+                    "2",
+                    "NextGen Mobile Banking",
+                    "REQ-MB-002",
+                    "Fix Crash saat Input Nominal Transfer Desimal",
+                    "Todo",
+                    "Urgent",
+                    "Bug Fixing",
+                    "Transfer Antar Bank",
+                    "Functional",
+                    "0%",
+                    "2026-10-05",
+                    "2026-10-08",
+                    "-",
+                    "budi.santoso@projectmgmt.local",
+                    "siti.rahma@projectmgmt.local",
+                    "-",
+                    "-",
+                    "tester.qa@projectmgmt.local",
+                    "-",
+                    "qa.lead@projectmgmt.local",
+                    "ahmad.fauzi@projectmgmt.local",
+                    "NumberFormatException pada parsing locale koma",
+                    "Standardisasi NumberFormat menggunakan InvariantCulture",
+                    "logcat_crash_report_20260922.txt",
+                    "BUG-MB-02"
+                }
             };
             PopulateSheet(sheet1, "#4F46E5", sampleDataSheet1);
 
-            // Sheet 2: Internal CRM System (demonstrating multi-sheet reading)
+            // Sheet 2: Internal CRM System
             var sheet2 = workbook.Worksheets.Add("CRM System");
             var sampleDataSheet2 = new[]
             {
-                new[] { "CRM-005", "Internal CRM System", "Optimasi Query Laporan Penjualan Bulanan", "Database", "Ahmad Fauzi", "High", "Todo", "Pengujian QA & Security", "2026-10-25", "Query report lambat", "Tambahkan composite index" },
-                new[] { "CRM-006", "Internal CRM System", "Implementasi Notifikasi Realtime ke Sales", "Backend", "Budi Santoso", "Medium", "Todo", "Pengembangan & Integrasi API", "2026-10-30", "-", "-" }
+                new[] {
+                    "1",
+                    "Internal Enterprise CRM",
+                    "REQ-CRM-105",
+                    "Optimasi Query Pipeline Laporan Sales Bulanan",
+                    "InReview",
+                    "High",
+                    "Performance",
+                    "Sales Analytics",
+                    "Performance",
+                    "90%",
+                    "2026-09-10",
+                    "2026-09-25",
+                    "-",
+                    "ahmad.fauzi@projectmgmt.local",
+                    "siti.rahma@projectmgmt.local",
+                    "infra.lead@projectmgmt.local",
+                    "-",
+                    "tester.qa@projectmgmt.local",
+                    "techwriter@projectmgmt.local",
+                    "qa.lead@projectmgmt.local",
+                    "ahmad.fauzi@projectmgmt.local",
+                    "Table scan berlebih pada tabel Transaksi saat join",
+                    "Tambahkan composite covering index pada (SalesDate, Status, RegionId)",
+                    "https://gitlab.internal/mr/crm-query-opt",
+                    "CRM-PERF-01"
+                },
+                new[] {
+                    "2",
+                    "Internal Enterprise CRM",
+                    "REQ-CRM-106",
+                    "Notifikasi Real-time Aktivitas Lead via WebSocket SignalR",
+                    "Done",
+                    "Medium",
+                    "New Feature",
+                    "Lead Management",
+                    "-",
+                    "100%",
+                    "2026-09-01",
+                    "2026-09-20",
+                    "2026-09-18",
+                    "budi.santoso@projectmgmt.local",
+                    "siti.rahma@projectmgmt.local",
+                    "infra.lead@projectmgmt.local",
+                    "-",
+                    "tester.qa@projectmgmt.local",
+                    "techwriter@projectmgmt.local",
+                    "qa.lead@projectmgmt.local",
+                    "ahmad.fauzi@projectmgmt.local",
+                    "-",
+                    "Setup SignalR Hub dengan connection grouping per organization",
+                    "uat_signoff_crm_leads.pdf",
+                    "CRM-FEAT-02"
+                }
             };
             PopulateSheet(sheet2, "#0D9488", sampleDataSheet2);
 
