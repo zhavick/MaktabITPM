@@ -161,6 +161,8 @@ export default function TasksPage() {
           description: '',
           status: 'Todo',
           priority: 'Medium',
+          category: '',
+          milestone: '',
           assigneeId: null,
           dueDate: '',
           estimatedHours: 8,

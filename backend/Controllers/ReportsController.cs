@@ -69,6 +69,138 @@ namespace ProjectManagement.Api.Controllers
             return Ok(new { success = true, data = stats });
         }
 
+        [HttpGet("executive-analytics")]
+        public async Task<IActionResult> GetExecutiveAnalytics()
+        {
+            var tasks = await _context.Tasks
+                .Include(t => t.Project)
+                .Include(t => t.Assignee)
+                .ToListAsync();
+
+            var projects = await _context.Projects
+                .Where(p => p.Status == "Active")
+                .Include(p => p.Tasks)
+                .ToListAsync();
+
+            var users = await _context.Users
+                .Where(u => u.Status == "Active")
+                .ToListAsync();
+
+            // 1. Task Status Breakdown for Donut Chart
+            var totalTasks = tasks.Count;
+            var todoCount = tasks.Count(t => t.Status == "Todo");
+            var inProgressCount = tasks.Count(t => t.Status == "InProgress");
+            var inReviewCount = tasks.Count(t => t.Status == "InReview");
+            var doneCount = tasks.Count(t => t.Status == "Done");
+
+            var statusBreakdown = new[]
+            {
+                new { Status = "Todo", Label = "To Do", Count = todoCount, Color = "#94a3b8", Percentage = totalTasks > 0 ? Math.Round((double)todoCount / totalTasks * 100, 1) : 0 },
+                new { Status = "InProgress", Label = "In Progress", Count = inProgressCount, Color = "#6366f1", Percentage = totalTasks > 0 ? Math.Round((double)inProgressCount / totalTasks * 100, 1) : 0 },
+                new { Status = "InReview", Label = "In Review", Count = inReviewCount, Color = "#f59e0b", Percentage = totalTasks > 0 ? Math.Round((double)inReviewCount / totalTasks * 100, 1) : 0 },
+                new { Status = "Done", Label = "Done", Count = doneCount, Color = "#10b981", Percentage = totalTasks > 0 ? Math.Round((double)doneCount / totalTasks * 100, 1) : 0 }
+            };
+
+            // 2. Team Workload (Top 6 most active members)
+            var teamWorkload = users.Select(u => {
+                var memberTasks = tasks.Where(t => t.AssigneeId == u.Id).ToList();
+                var activeTasks = memberTasks.Count(t => t.Status != "Done");
+                var completedMemberTasks = memberTasks.Count(t => t.Status == "Done");
+                var totalEstHours = memberTasks.Sum(t => t.EstimatedHours);
+                return new
+                {
+                    UserId = u.Id,
+                    FullName = u.FullName,
+                    Role = u.Role,
+                    AvatarUrl = u.AvatarUrl,
+                    EmploymentType = u.EmploymentType,
+                    TotalTasks = memberTasks.Count,
+                    ActiveTasks = activeTasks,
+                    CompletedTasks = completedMemberTasks,
+                    TotalEstimatedHours = totalEstHours
+                };
+            })
+            .OrderByDescending(w => w.ActiveTasks)
+            .ThenByDescending(w => w.TotalTasks)
+            .Take(6)
+            .ToList();
+
+            // 3. Project Progress & SDLC Milestones
+            var milestones = new[]
+            {
+                "Inisiasi & Analisis Kebutuhan",
+                "Perancangan FSD & TSD",
+                "Pengembangan & Integrasi API",
+                "Pengujian QA & Security",
+                "User Acceptance Testing (UAT)",
+                "Deployment & Go-Live"
+            };
+
+            var projectProgress = projects.Select(p => {
+                var pTasks = tasks.Where(t => t.ProjectId == p.Id).ToList();
+                var pTotal = pTasks.Count;
+                var pDone = pTasks.Count(t => t.Status == "Done");
+                var progressPct = pTotal > 0 ? Math.Round((double)pDone / pTotal * 100, 0) : 0;
+
+                var milestoneBreakdown = milestones.Select((m, idx) => {
+                    var mTasks = pTasks.Where(t => t.Milestone != null && t.Milestone.IndexOf(m.Split(' ')[0], StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+                    return new {
+                        Step = idx + 1,
+                        Name = m,
+                        ShortName = m.Split('&')[0].Trim(),
+                        TaskCount = mTasks.Count,
+                        IsCompleted = mTasks.Count > 0 && mTasks.All(t => t.Status == "Done"),
+                        IsActive = mTasks.Any(t => t.Status == "InProgress" || t.Status == "Todo")
+                    };
+                }).ToList();
+
+                return new
+                {
+                    p.Id,
+                    p.Name,
+                    p.Code,
+                    Color = p.Color ?? "#4f46e5",
+                    p.ClientName,
+                    p.ProjectType,
+                    TotalTasks = pTotal,
+                    CompletedTasks = pDone,
+                    ProgressPercentage = progressPct,
+                    Milestones = milestoneBreakdown
+                };
+            })
+            .OrderByDescending(p => p.TotalTasks)
+            .Take(5)
+            .ToList();
+
+            // 4. Category Breakdown
+            var categoryBreakdown = tasks
+                .Where(t => !string.IsNullOrWhiteSpace(t.Category))
+                .GroupBy(t => t.Category!)
+                .Select(g => new
+                {
+                    Category = g.Key,
+                    Count = g.Count(),
+                    Percentage = totalTasks > 0 ? Math.Round((double)g.Count() / totalTasks * 100, 1) : 0
+                })
+                .OrderByDescending(c => c.Count)
+                .Take(6)
+                .ToList();
+
+            return Ok(new
+            {
+                success = true,
+                data = new
+                {
+                    TotalTasks = totalTasks,
+                    CompletionRate = totalTasks > 0 ? Math.Round((double)doneCount / totalTasks * 100, 1) : 0,
+                    StatusBreakdown = statusBreakdown,
+                    TeamWorkload = teamWorkload,
+                    ProjectProgress = projectProgress,
+                    CategoryBreakdown = categoryBreakdown
+                }
+            });
+        }
+
         [HttpGet("timesheet-summary")]
         public async Task<IActionResult> GetTimesheetSummary([FromQuery] int? month, [FromQuery] int? year)
         {
