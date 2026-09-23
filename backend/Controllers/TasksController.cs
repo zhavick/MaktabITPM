@@ -929,15 +929,44 @@ namespace ProjectManagement.Api.Controllers
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> ImportExcel([FromForm] TaskExcelImportDto dto)
         {
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int currentUserId = int.TryParse(userIdStr, out var pId) ? pId : 1;
+            var currentUserName = User.FindFirstValue(ClaimTypes.Name) ?? "System Administrator";
+            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "Admin";
+
             if (dto.File == null || dto.File.Length == 0)
-                return BadRequest(new { success = false, message = "Silakan unggah berkas Excel (.xlsx atau .xls)." });
+            {
+                await _auditService.LogAsync(
+                    "TASKS_IMPORT_FAILED",
+                    "Tasks",
+                    "Percobaan impor berkas Excel gagal: Tidak ada berkas yang diunggah atau ukuran berkas 0 byte.",
+                    "Warning",
+                    currentUserId, currentUserName, currentUserRole
+                );
+                return BadRequest(new { 
+                    success = false, 
+                    title = "Berkas Kosong",
+                    message = "Silakan unggah berkas Excel (.xlsx atau .xls) yang berisi data tugas." 
+                });
+            }
 
             var ext = Path.GetExtension(dto.File.FileName).ToLowerInvariant();
             if (ext != ".xlsx" && ext != ".xls")
+            {
+                await _auditService.LogAsync(
+                    "TASKS_IMPORT_FAILED",
+                    "Tasks",
+                    $"Percobaan impor berkas '{dto.File.FileName}' gagal: Format ekstensi '{ext}' tidak didukung. Sistem hanya menerima .xlsx atau .xls.",
+                    "Warning",
+                    currentUserId, currentUserName, currentUserRole
+                );
                 return BadRequest(new { 
                     success = false, 
-                    message = "Format berkas tidak valid. Pastikan berkas yang diimpor adalah file Excel dengan ekstensi .xlsx atau .xls." 
+                    title = "Format Berkas Tidak Didukung",
+                    fileName = dto.File.FileName,
+                    message = $"Format berkas '{ext}' tidak didukung. Pastikan berkas yang diimpor menggunakan ekstensi resmi Microsoft Excel (.xlsx atau .xls)." 
                 });
+            }
 
             var users = await _context.Users.ToListAsync();
             var allProjects = await _context.Projects.ToListAsync();
@@ -960,31 +989,70 @@ namespace ProjectManagement.Api.Controllers
             }
             catch (FormatException fEx)
             {
-                return BadRequest(new { success = false, message = fEx.Message });
+                await _auditService.LogAsync(
+                    "TASKS_IMPORT_FAILED",
+                    "Tasks",
+                    $"Impor berkas '{dto.File.FileName}' gagal karena ketidaksesuaian struktur: {fEx.Message}",
+                    "Warning",
+                    currentUserId, currentUserName, currentUserRole
+                );
+                return BadRequest(new { 
+                    success = false, 
+                    title = "Struktur Kolom Tidak Sesuai",
+                    fileName = dto.File.FileName,
+                    message = fEx.Message 
+                });
             }
             catch (InvalidDataException iEx)
             {
-                return BadRequest(new { success = false, message = iEx.Message });
+                await _auditService.LogAsync(
+                    "TASKS_IMPORT_FAILED",
+                    "Tasks",
+                    $"Impor berkas '{dto.File.FileName}' gagal karena berkas Excel rusak/corrupt: {iEx.Message}",
+                    "Error",
+                    currentUserId, currentUserName, currentUserRole
+                );
+                return BadRequest(new { 
+                    success = false, 
+                    title = "Berkas Rusak atau Terkorupsi",
+                    fileName = dto.File.FileName,
+                    message = iEx.Message 
+                });
             }
             catch (Exception ex)
             {
+                await _auditService.LogAsync(
+                    "TASKS_IMPORT_FAILED",
+                    "Tasks",
+                    $"Kesalahan sistem saat memproses impor berkas '{dto.File.FileName}': {ex.Message}",
+                    "Error",
+                    currentUserId, currentUserName, currentUserRole
+                );
                 return BadRequest(new { 
                     success = false, 
-                    message = $"Gagal membaca berkas Excel: {ex.Message}. Pastikan berkas merupakan format Excel (.xlsx/.xls) yang valid." 
+                    title = "Gagal Membaca Berkas Excel",
+                    fileName = dto.File.FileName,
+                    message = $"Gagal membaca berkas Excel: {ex.Message}. Pastikan berkas merupakan format Excel (.xlsx/.xls) yang valid dan tidak terkunci kata sandi." 
                 });
             }
 
             var parsedItems = package.Tasks;
             if (parsedItems.Count == 0 && package.NewUsersToCreate.Count == 0)
+            {
+                await _auditService.LogAsync(
+                    "TASKS_IMPORT_FAILED",
+                    "Tasks",
+                    $"Impor berkas '{dto.File.FileName}' selesai tanpa data: Tidak ada baris tugas atau pengguna yang valid ditemukan.",
+                    "Warning",
+                    currentUserId, currentUserName, currentUserRole
+                );
                 return BadRequest(new { 
                     success = false, 
-                    message = "Tidak ada baris data tugas atau pengguna yang valid ditemukan pada berkas Excel tersebut. Pastikan berkas memiliki baris data di bawah header resmi." 
+                    title = "Data Tugas Tidak Ditemukan",
+                    fileName = dto.File.FileName,
+                    message = "Tidak ada baris data tugas atau pengguna yang valid ditemukan pada berkas Excel tersebut. Pastikan berkas memiliki baris data di bawah 25 kolom header resmi." 
                 });
-
-            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            int currentUserId = int.TryParse(userIdStr, out var pId) ? pId : 1;
-            var currentUserName = User.FindFirstValue(ClaimTypes.Name) ?? "System Administrator";
-            var currentUserRole = User.FindFirstValue(ClaimTypes.Role) ?? "Admin";
+            }
 
             // 1. Save auto-created users if any were found in User sheets, Person sheets, or Developer columns
             var createdUsersList = new List<User>();
@@ -1127,6 +1195,15 @@ namespace ProjectManagement.Api.Controllers
                 if (skippedUnavailableProjects.Count > 0) detailNotes.Add($"{skippedUnavailableProjects.Count} proyek belum terdaftar");
 
                 var reasonDetail = detailNotes.Count > 0 ? string.Join(", ", detailNotes) : "proyek atau tugas tidak tersedia di sistem";
+                var processedSheetsStr = package.ProcessedSheets.Count > 0 ? string.Join(", ", package.ProcessedSheets) : "Sheet Utama";
+
+                await _auditService.LogAsync(
+                    "TASKS_IMPORTED_EXCEL", 
+                    "Tasks", 
+                    $"Impor berkas Excel '{dto.File.FileName}' selesai tanpa tugas baru yang ditambahkan: {package.SkippedTasksCount} tugas dilewati ({reasonDetail}). Sheet diproses: [{processedSheetsStr}].", 
+                    duplicateCount > 0 ? "Warning" : "Info", 
+                    currentUserId, currentUserName, currentUserRole
+                );
 
                 return Ok(new
                 {
@@ -1144,6 +1221,7 @@ namespace ProjectManagement.Api.Controllers
                     newUsers = new List<object>(),
                     skippedSheets = package.SkippedSheets,
                     processedSheets = package.ProcessedSheets,
+                    fileName = dto.File.FileName,
                     message = $"Tidak ada tugas baru yang diimpor. Sebanyak {package.SkippedTasksCount} tugas dilewati ({reasonDetail}).",
                     data = new
                     {
@@ -1157,7 +1235,9 @@ namespace ProjectManagement.Api.Controllers
                         projectsCount = 0,
                         projectNames = new List<string>(),
                         newUsersCount = 0,
-                        skippedSheets = package.SkippedSheets
+                        skippedSheets = package.SkippedSheets,
+                        processedSheets = package.ProcessedSheets,
+                        fileName = dto.File.FileName
                     }
                 });
             }
@@ -1208,10 +1288,11 @@ namespace ProjectManagement.Api.Controllers
             }
 
             var finalMessage = string.Join(", ", msgParts) + "!";
+            var fullProcessedSheets = package.ProcessedSheets.Count > 0 ? string.Join(", ", package.ProcessedSheets) : "Sheet Utama";
 
             await _auditService.LogAsync("TASKS_IMPORTED_EXCEL", "Tasks", 
-                $"{validTasksToInsert.Count} tugas diimpor dari Excel '{dto.File.FileName}'. {duplicateCount} duplikat dilewati. {incompleteCount} data tidak lengkap dilewati. {package.SkippedTasksCount} total tugas dilewati. {createdUsersList.Count} user baru dibuat.", 
-                "Info", null, currentUserName, currentUserRole);
+                $"{validTasksToInsert.Count} tugas diimpor dari Excel '{dto.File.FileName}'. {duplicateCount} duplikat dilewati. {incompleteCount} data tidak lengkap dilewati. {package.SkippedTasksCount} total tugas dilewati. {createdUsersList.Count} user baru dibuat. Sheet: [{fullProcessedSheets}].", 
+                "Info", currentUserId, currentUserName, currentUserRole);
 
             // Broadcast real-time update to all clients
             await _hubContext.Clients.All.SendAsync("ReceiveSyncEvent", new

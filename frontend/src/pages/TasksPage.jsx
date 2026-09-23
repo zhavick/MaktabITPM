@@ -465,6 +465,169 @@ export default function TasksPage({ onlyMyTasks = false }) {
     }
   };
 
+  const showImportFailureModal = (err, fileName) => {
+    const errorData = err.response?.data || {};
+    const title = errorData.title || 'Gagal Mengimpor Berkas Excel';
+    const message = errorData.message || err.message || 'Terjadi kesalahan sistem saat memproses berkas Excel.';
+    const actualFileName = fileName || errorData.fileName || 'Berkas Excel';
+
+    Swal.fire({
+      title: `<div style="display:flex;align-items:center;justify-content:center;gap:10px;color:#ef4444;font-size:20px;font-weight:700;">
+        <span>⚠️ ${title}</span>
+      </div>`,
+      html: `
+        <div style="text-align:left;font-size:13.5px;line-height:1.6;color:var(--text-primary,#1e293b);">
+          <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+            <div style="font-weight:600;color:#dc2626;margin-bottom:4px;display:flex;align-items:center;gap:6px;">
+              <span>📁 Berkas: ${actualFileName}</span>
+            </div>
+            <div style="color:#7f1d1d;font-size:13px;">${message}</div>
+          </div>
+
+          <div style="background:var(--card-bg,#f8fafc);border:1px solid var(--border-color,#e2e8f0);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+            <div style="font-weight:600;color:var(--text-primary,#334155);margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+              <span>💡 Panduan Pemeriksaan & Solusi:</span>
+            </div>
+            <ul style="margin:0;padding-left:18px;color:var(--text-secondary,#64748b);font-size:12.5px;display:flex;flex-direction:column;gap:4px;">
+              <li>Pastikan format ekstensi berkas adalah <strong>.xlsx</strong> atau <strong>.xls</strong>.</li>
+              <li>Pastikan susunan <strong>25 header kolom</strong> sesuai urutan template resmi.</li>
+              <li>Pastikan kolom <strong>title</strong> (nama task) dan <strong>project_name</strong> terisi dengan benar.</li>
+              <li>Pastikan berkas tidak terenkripsi kata sandi (*password protected*).</li>
+            </ul>
+          </div>
+
+          <div style="text-align:center;margin-top:10px;">
+            <button id="swal-btn-download-template" style="background:#4f46e5;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+              📥 Unduh Template Excel Resmi (.xlsx)
+            </button>
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Tutup',
+      cancelButtonText: 'Salin Pesan Error',
+      confirmButtonColor: '#64748b',
+      cancelButtonColor: '#4f46e5',
+      reverseButtons: true,
+      width: '540px',
+      didOpen: () => {
+        const btnTemplate = document.getElementById('swal-btn-download-template');
+        if (btnTemplate) {
+          btnTemplate.addEventListener('click', () => {
+            handleDownloadTemplate();
+          });
+        }
+      }
+    }).then((result) => {
+      if (result.dismiss === Swal.DismissReason.cancel) {
+        navigator.clipboard.writeText(`[Gagal Impor Excel] ${actualFileName}: ${title} - ${message}`);
+        showToast('Pesan kesalahan berhasil disalin!', 'info');
+      }
+    });
+  };
+
+  const showImportSuccessModal = (resData, fileName) => {
+    const data = resData.data || resData;
+    const impCount = data.importedCount ?? resData.count ?? 0;
+    const dupCount = data.duplicateCount ?? resData.duplicateCount ?? 0;
+    const incCount = data.incompleteCount ?? resData.incompleteCount ?? 0;
+    const projCount = data.projectsCount ?? resData.projectsCount ?? 0;
+    const userCount = data.newUsersCount ?? resData.newUsersCount ?? 0;
+    const projNames = data.projectNames || [];
+    const dupReasons = data.duplicateReasons || [];
+    const incReasons = data.incompleteReasons || [];
+    const skippedSheets = data.skippedSheets || [];
+    const processedSheets = data.processedSheets || [];
+    const actualFileName = fileName || data.fileName || resData.fileName || 'Berkas Excel';
+
+    const isAllZero = impCount === 0;
+
+    const htmlContent = `
+      <div style="text-align:left;font-size:13.5px;line-height:1.5;color:var(--text-primary,#1e293b);">
+        <p style="margin-bottom:12px;color:var(--text-secondary,#475569);font-size:13px;">
+          ${resData.message || 'Proses analisis dan pengunggahan berkas Excel telah selesai.'}
+        </p>
+
+        <!-- Metric Badges Grid -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px;">
+          <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:8px 6px;text-align:center;">
+            <div style="font-size:18px;font-weight:700;color:#059669;">${impCount}</div>
+            <div style="font-size:11px;color:#065f46;font-weight:600;">Berhasil Masuk</div>
+          </div>
+          <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:8px 6px;text-align:center;">
+            <div style="font-size:18px;font-weight:700;color:#d97706;">${dupCount}</div>
+            <div style="font-size:11px;color:#92400e;font-weight:600;">Duplikat Dilewati</div>
+          </div>
+          <div style="background:rgba(100,116,139,0.1);border:1px solid rgba(100,116,139,0.3);border-radius:8px;padding:8px 6px;text-align:center;">
+            <div style="font-size:18px;font-weight:700;color:#475569;">${incCount}</div>
+            <div style="font-size:11px;color:#334155;font-weight:600;">Data Tidak Lengkap</div>
+          </div>
+          <div style="background:rgba(79,70,229,0.1);border:1px solid rgba(79,70,229,0.3);border-radius:8px;padding:8px 6px;text-align:center;">
+            <div style="font-size:18px;font-weight:700;color:#4f46e5;">${projCount}</div>
+            <div style="font-size:11px;color:#3730a3;font-weight:600;">Proyek Terkait</div>
+          </div>
+          ${userCount > 0 ? `
+          <div style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.3);border-radius:8px;padding:8px 6px;text-align:center;">
+            <div style="font-size:18px;font-weight:700;color:#0891b2;">${userCount}</div>
+            <div style="font-size:11px;color:#155e75;font-weight:600;">User Baru Dibuat</div>
+          </div>` : ''}
+        </div>
+
+        <!-- Breakdown Details -->
+        <div style="max-height:180px;overflow-y:auto;background:var(--card-bg,#f8fafc);border:1px solid var(--border-color,#e2e8f0);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--text-secondary,#475569);display:flex;flex-direction:column;gap:6px;">
+          <div><strong>📁 Berkas:</strong> ${actualFileName}</div>
+          ${processedSheets.length > 0 ? `<div><strong>📑 Sheet Diproses (${processedSheets.length}):</strong> ${processedSheets.slice(0, 5).join(', ')}${processedSheets.length > 5 ? ` dan ${processedSheets.length - 5} lainnya` : ''}</div>` : ''}
+          ${skippedSheets.length > 0 ? `<div><strong>🚫 Sheet Dilewati (${skippedSheets.length}):</strong> ${skippedSheets.join(', ')} (Dashboard/Ringkasan)</div>` : ''}
+          ${projNames.length > 0 ? `<div><strong>🎯 Proyek Masuk:</strong> ${projNames.slice(0, 4).join(', ')}${projNames.length > 4 ? ` dan ${projNames.length - 4} lainnya` : ''}</div>` : ''}
+          ${dupReasons.length > 0 ? `
+            <div style="margin-top:4px;">
+              <strong style="color:#d97706;">⚠️ Catatan Duplikasi (${dupReasons.length}):</strong>
+              <div style="padding-left:8px;border-left:2px solid #f59e0b;margin-top:2px;">
+                ${dupReasons.slice(0, 3).map(r => `<div>• ${r}</div>`).join('')}
+                ${dupReasons.length > 3 ? `<div style="font-style:italic;">...dan ${dupReasons.length - 3} lainnya</div>` : ''}
+              </div>
+            </div>` : ''}
+          ${incReasons.length > 0 ? `
+            <div style="margin-top:4px;">
+              <strong style="color:#64748b;">ℹ️ Catatan Data Tidak Lengkap (${incReasons.length}):</strong>
+              <div style="padding-left:8px;border-left:2px solid #94a3b8;margin-top:2px;">
+                ${incReasons.slice(0, 3).map(r => `<div>• ${r}</div>`).join('')}
+                ${incReasons.length > 3 ? `<div style="font-style:italic;">...dan ${incReasons.length - 3} lainnya</div>` : ''}
+              </div>
+            </div>` : ''}
+        </div>
+      </div>
+    `;
+
+    Swal.fire({
+      title: isAllZero 
+        ? '<span style="color:#f59e0b;font-size:20px;font-weight:700;">ℹ️ Ringkasan Impor Excel</span>'
+        : '<span style="color:#10b981;font-size:20px;font-weight:700;">🎉 Berhasil Memproses Impor Excel</span>',
+      html: htmlContent,
+      showCancelButton: true,
+      confirmButtonText: 'Mengerti & Lihat Tugas',
+      cancelButtonText: 'Salin Ringkasan Log',
+      confirmButtonColor: '#4f46e5',
+      cancelButtonColor: '#64748b',
+      reverseButtons: true,
+      width: '560px'
+    }).then((result) => {
+      if (result.dismiss === Swal.DismissReason.cancel) {
+        const copyText = `[HASIL IMPOR EXCEL]
+Berkas: ${actualFileName}
+Status: ${resData.message}
+Berhasil Masuk: ${impCount} tugas
+Duplikat Dilewati: ${dupCount} tugas
+Data Tidak Lengkap: ${incCount} baris
+Total Proyek: ${projCount}
+User Baru: ${userCount}
+Sheet Diproses: ${processedSheets.join(', ')}`;
+        navigator.clipboard.writeText(copyText);
+        showToast('Ringkasan log impor disalin ke clipboard!', 'success');
+      }
+    });
+  };
+
   const handleImportSubmit = async (e) => {
     e.preventDefault();
     if (!importFile) {
@@ -472,6 +635,7 @@ export default function TasksPage({ onlyMyTasks = false }) {
       return;
     }
 
+    const currentFileName = importFile.name;
     const formData = new FormData();
     if (importProjectId) {
       formData.append('ProjectId', importProjectId);
@@ -487,37 +651,12 @@ export default function TasksPage({ onlyMyTasks = false }) {
         setShowImportModal(false);
         setImportFile(null);
         fetchInitialData();
-
-        const dupCount = res.data.duplicateCount || res.data.data?.duplicateCount || 0;
-        const incCount = res.data.incompleteCount || res.data.data?.incompleteCount || 0;
-        const impCount = res.data.count ?? res.data.data?.importedCount ?? 0;
-
-        if (dupCount > 0 || incCount > 0) {
-          const detailList = [];
-          if (impCount > 0) detailList.push(`✅ <strong>${impCount}</strong> tugas berhasil diimpor`);
-          if (dupCount > 0) detailList.push(`⚠️ <strong>${dupCount}</strong> tugas dilewati karena terdeteksi duplikasi`);
-          if (incCount > 0) detailList.push(`ℹ️ <strong>${incCount}</strong> baris dilewati karena data tidak lengkap (judul/proyek kosong)`);
-
-          Swal.fire({
-            title: impCount > 0 ? 'Hasil Impor Excel' : 'Perhatian Impor Excel',
-            html: `
-              <div style="text-align: left; font-size: 14px; line-height: 1.6;">
-                <p style="margin-bottom: 12px; color: var(--text-secondary, #475569);">${res.data.message}</p>
-                <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); padding: 12px; border-radius: 8px;">
-                  ${detailList.map(item => `<div style="margin: 4px 0;">${item}</div>`).join('')}
-                </div>
-              </div>
-            `,
-            icon: impCount > 0 ? 'success' : 'warning',
-            confirmButtonColor: '#6366f1',
-            confirmButtonText: 'Mengerti'
-          });
-        } else {
-          showToast(res.data.message, 'success');
-        }
+        showImportSuccessModal(res.data, currentFileName);
+      } else {
+        showImportFailureModal({ response: { data: res.data } }, currentFileName);
       }
     } catch (err) {
-      errorAlert('Gagal Mengimpor', err.response?.data?.message || 'Terjadi kesalahan saat memproses berkas Excel.');
+      showImportFailureModal(err, currentFileName);
     } finally {
       setImporting(false);
     }
