@@ -1030,86 +1030,103 @@ namespace ProjectManagement.Api.Controllers
                 }
             }
 
-            var newProjectsAdded = new List<Project>();
-            var presetColors = new[] { "#4f46e5", "#10b981", "#0284c7", "#f59e0b", "#e11d48", "#8b5cf6", "#06b6d4" };
+            // 2. Resolve project for each task based on Excel project_name column
+            // Aturan: Jika penamaan project, task, dll tidak tersedia di database atau file, skip saja (jangan buat proyek otomatis)
+            var validTasksToInsert = new List<TaskItem>();
+            var matchedProjectsMap = new Dictionary<string, Project>(StringComparer.OrdinalIgnoreCase);
+            var skippedUnavailableProjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            // 2. Resolve or create project for each task based on Excel project_name column
             foreach (var item in parsedItems)
             {
-                var targetName = item.ProjectName.Trim();
+                var targetName = item.ProjectName?.Trim() ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(targetName))
                 {
-                    targetName = fallbackProjectName ?? (allProjects.FirstOrDefault()?.Name ?? "Proyek Utama");
+                    targetName = fallbackProjectName ?? string.Empty;
+                }
+
+                if (string.IsNullOrWhiteSpace(targetName) || targetName == "-" || targetName.Equals("n/a", StringComparison.OrdinalIgnoreCase) || targetName.Equals("none", StringComparison.OrdinalIgnoreCase))
+                {
+                    package.SkippedTasksCount++;
+                    package.SkippedReasons.Add($"Tugas '{item.Task.Title}' dilewati karena nama proyek tidak tersedia.");
+                    continue;
                 }
 
                 // Match existing project by exact Name or Code, or contains
-                var matchedProject = allProjects.FirstOrDefault(p => 
-                    p.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase) ||
-                    p.Code.Equals(targetName, StringComparison.OrdinalIgnoreCase))
-                    ?? allProjects.FirstOrDefault(p => 
-                        p.Name.IndexOf(targetName, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        targetName.IndexOf(p.Name, StringComparison.OrdinalIgnoreCase) >= 0);
+                if (!matchedProjectsMap.TryGetValue(targetName, out var matchedProject))
+                {
+                    matchedProject = allProjects.FirstOrDefault(p => 
+                        p.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase) ||
+                        p.Code.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+                        ?? allProjects.FirstOrDefault(p => 
+                            p.Name.IndexOf(targetName, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            targetName.IndexOf(p.Name, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                    if (matchedProject != null)
+                    {
+                        matchedProjectsMap[targetName] = matchedProject;
+                    }
+                }
 
                 if (matchedProject == null)
                 {
-                    // Generate unique project code
-                    var words = targetName.Split(new[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
-                    var initials = words.Length > 1 
-                        ? string.Concat(words.Take(3).Select(w => char.ToUpper(w[0]))) 
-                        : (targetName.Length >= 3 ? targetName.Substring(0, 3).ToUpper() : "PRJ");
-                    
-                    var candidateCode = initials;
-                    int suffix = 1;
-                    while (allProjects.Any(p => p.Code.Equals(candidateCode, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        candidateCode = $"{initials}{suffix++}";
-                    }
-
-                    var color = presetColors[allProjects.Count % presetColors.Length];
-
-                    matchedProject = new Project
-                    {
-                        Name = targetName.Length > 150 ? targetName.Substring(0, 150) : targetName,
-                        Code = candidateCode,
-                        Description = $"Proyek dibuat otomatis dari import tugas Excel pada {DateTime.UtcNow:dd MMM yyyy}.",
-                        ClientName = "Internal",
-                        Status = "Active",
-                        ProjectType = "New Application",
-                        Color = color,
-                        StartDate = DateTime.UtcNow,
-                        CreatedByUserId = currentUserId,
-                        CreatedAt = DateTime.UtcNow
-                    };
-
-                    _context.Projects.Add(matchedProject);
-                    allProjects.Add(matchedProject);
-                    newProjectsAdded.Add(matchedProject);
+                    // Project tidak tersedia di database -> skip saja, tidak perlu dimasukkan dan tidak perlu dibuat proyek baru
+                    package.SkippedTasksCount++;
+                    skippedUnavailableProjects.Add(targetName);
+                    continue;
                 }
 
-                item.Task.Project = matchedProject;
-            }
-
-            // Save new projects first to generate IDs if any
-            if (newProjectsAdded.Count > 0)
-            {
-                await _context.SaveChangesAsync();
-            }
-
-            // Assign ProjectId to all tasks
-            foreach (var item in parsedItems)
-            {
-                item.Task.ProjectId = item.Task.Project?.Id ?? (allProjects.First().Id);
+                item.Task.ProjectId = matchedProject.Id;
                 item.Task.Project = null; // Detach reference for clean insert
+                validTasksToInsert.Add(item.Task);
             }
 
-            if (parsedItems.Count > 0)
+            if (skippedUnavailableProjects.Count > 0)
             {
-                _context.Tasks.AddRange(parsedItems.Select(p => p.Task));
+                var skippedListStr = string.Join(", ", skippedUnavailableProjects);
+                package.SkippedReasons.Add($"Tugas dengan proyek yang belum terdaftar di database dilewati ({skippedListStr}).");
+            }
+
+            if (validTasksToInsert.Count == 0 && createdUsersList.Count == 0)
+            {
+                var reasonSummary = package.SkippedReasons.Count > 0 
+                    ? string.Join("; ", package.SkippedReasons.Take(3))
+                    : "Penamaan proyek atau tugas tidak tersedia di sistem.";
+
+                return Ok(new
+                {
+                    success = true,
+                    count = 0,
+                    projectsCount = 0,
+                    projectNames = new List<string>(),
+                    skippedTasksCount = package.SkippedTasksCount,
+                    skippedReasons = package.SkippedReasons,
+                    newUsersCount = 0,
+                    newUsers = new List<object>(),
+                    skippedSheets = package.SkippedSheets,
+                    processedSheets = package.ProcessedSheets,
+                    message = $"Tidak ada tugas yang diimpor. Sebanyak {package.SkippedTasksCount} tugas dilewati karena proyek atau tugas tidak tersedia di sistem ({reasonSummary}).",
+                    data = new
+                    {
+                        importedCount = 0,
+                        skippedTasksCount = package.SkippedTasksCount,
+                        skippedReasons = package.SkippedReasons,
+                        projectsCount = 0,
+                        projectNames = new List<string>(),
+                        newUsersCount = 0,
+                        skippedSheets = package.SkippedSheets
+                    }
+                });
+            }
+
+            if (validTasksToInsert.Count > 0)
+            {
+                _context.Tasks.AddRange(validTasksToInsert);
                 await _context.SaveChangesAsync();
             }
 
-            var distinctProjects = parsedItems
-                .Select(p => p.ProjectName)
+            var distinctProjects = validTasksToInsert
+                .Select(t => allProjects.FirstOrDefault(p => p.Id == t.ProjectId)?.Name ?? "")
+                .Where(n => !string.IsNullOrEmpty(n))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -1119,9 +1136,13 @@ namespace ProjectManagement.Api.Controllers
 
             // Build detailed descriptive message
             var msgParts = new List<string>();
-            if (parsedItems.Count > 0)
+            if (validTasksToInsert.Count > 0)
             {
-                msgParts.Add($"Berhasil mengimpor {parsedItems.Count} tugas ke dalam {distinctProjects.Count} proyek ({projectSummary})");
+                msgParts.Add($"Berhasil mengimpor {validTasksToInsert.Count} tugas ke dalam {distinctProjects.Count} proyek ({projectSummary})");
+            }
+            if (package.SkippedTasksCount > 0)
+            {
+                msgParts.Add($"melewati {package.SkippedTasksCount} tugas yang proyek/namanya tidak tersedia");
             }
             if (createdUsersList.Count > 0)
             {
@@ -1137,7 +1158,7 @@ namespace ProjectManagement.Api.Controllers
             var finalMessage = string.Join(", ", msgParts) + "!";
 
             await _auditService.LogAsync("TASKS_IMPORTED_EXCEL", "Tasks", 
-                $"{parsedItems.Count} tugas diimpor dari Excel '{dto.File.FileName}'. {createdUsersList.Count} user baru dibuat. {package.SkippedSheets.Count} sheet dilewati.", 
+                $"{validTasksToInsert.Count} tugas diimpor dari Excel '{dto.File.FileName}'. {package.SkippedTasksCount} tugas dilewati. {createdUsersList.Count} user baru dibuat. {package.SkippedSheets.Count} sheet dilewati.", 
                 "Info", null, currentUserName, currentUserRole);
 
             // Broadcast real-time update to all clients
@@ -1145,7 +1166,7 @@ namespace ProjectManagement.Api.Controllers
             {
                 Type = "TaskUpdated",
                 Action = "Imported",
-                Count = parsedItems.Count,
+                Count = validTasksToInsert.Count,
                 ProjectsCount = distinctProjects.Count,
                 NewUsersCount = createdUsersList.Count
             });
@@ -1153,9 +1174,11 @@ namespace ProjectManagement.Api.Controllers
             return Ok(new
             {
                 success = true,
-                count = parsedItems.Count,
+                count = validTasksToInsert.Count,
                 projectsCount = distinctProjects.Count,
                 projectNames = distinctProjects,
+                skippedTasksCount = package.SkippedTasksCount,
+                skippedReasons = package.SkippedReasons,
                 newUsersCount = createdUsersList.Count,
                 newUsers = createdUsersList.Select(u => new { u.Id, u.FullName, u.Email, u.Role }).ToList(),
                 skippedSheets = package.SkippedSheets,
@@ -1163,7 +1186,9 @@ namespace ProjectManagement.Api.Controllers
                 message = finalMessage,
                 data = new
                 {
-                    importedCount = parsedItems.Count,
+                    importedCount = validTasksToInsert.Count,
+                    skippedTasksCount = package.SkippedTasksCount,
+                    skippedReasons = package.SkippedReasons,
                     projectsCount = distinctProjects.Count,
                     projectNames = distinctProjects,
                     newUsersCount = createdUsersList.Count,

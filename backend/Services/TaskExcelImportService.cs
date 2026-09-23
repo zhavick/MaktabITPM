@@ -25,6 +25,8 @@ namespace ProjectManagement.Api.Services
         public List<string> SkippedSheets { get; set; } = new();
         public List<string> ProcessedSheets { get; set; } = new();
         public List<string> UserSheets { get; set; } = new();
+        public int SkippedTasksCount { get; set; } = 0;
+        public List<string> SkippedReasons { get; set; } = new();
     }
 
     public interface ITaskExcelImportService
@@ -415,30 +417,36 @@ namespace ProjectManagement.Api.Services
                             if (string.IsNullOrWhiteSpace(title)) title = GetCellString(row, 3);
                             if (string.IsNullOrWhiteSpace(title)) title = GetCellString(row, 1);
                         }
-                        if (string.IsNullOrWhiteSpace(title)) continue;
+                        
+                        // Jika penamaan task tidak tersedia -> lewati (skip)
+                        if (string.IsNullOrWhiteSpace(title) || title == "-" || title.Equals("n/a", StringComparison.OrdinalIgnoreCase) || title.Equals("none", StringComparison.OrdinalIgnoreCase))
+                        {
+                            package.SkippedTasksCount++;
+                            package.SkippedReasons.Add($"Baris pada sheet '{worksheet.Name}' dilewati karena nama tugas tidak tersedia.");
+                            continue;
+                        }
 
                         var projInFile = colProject > 0 ? GetCellString(row, colProject) : GetCellString(row, 2);
                         if (string.IsNullOrWhiteSpace(projInFile)) projInFile = GetCellString(row, 2);
 
-                        if (!string.IsNullOrWhiteSpace(projInFile))
+                        // Jika penamaan project tidak tersedia di baris Excel
+                        if (string.IsNullOrWhiteSpace(projInFile) || projInFile == "-" || projInFile.Equals("n/a", StringComparison.OrdinalIgnoreCase) || projInFile.Equals("none", StringComparison.OrdinalIgnoreCase))
                         {
-                            lastSeenProject = projInFile;
-                        }
-                        else if (!string.IsNullOrWhiteSpace(lastSeenProject))
-                        {
-                            projInFile = lastSeenProject;
-                        }
-                        else if (!string.IsNullOrWhiteSpace(defaultProjectName))
-                        {
-                            projInFile = defaultProjectName;
-                        }
-                        else if (!string.IsNullOrWhiteSpace(worksheet.Name) && !worksheet.Name.StartsWith("Sheet", StringComparison.OrdinalIgnoreCase) && !IsPersonName(worksheet.Name))
-                        {
-                            projInFile = worksheet.Name;
-                        }
-                        else
-                        {
-                            projInFile = "Proyek Utama";
+                            if (!string.IsNullOrWhiteSpace(defaultProjectName))
+                            {
+                                projInFile = defaultProjectName;
+                            }
+                            else if (!string.IsNullOrWhiteSpace(worksheet.Name) && !worksheet.Name.StartsWith("Sheet", StringComparison.OrdinalIgnoreCase) && !IsPersonName(worksheet.Name))
+                            {
+                                projInFile = worksheet.Name;
+                            }
+                            else
+                            {
+                                // Penamaan project tidak tersedia -> lewati (skip) sesuai permintaan user
+                                package.SkippedTasksCount++;
+                                package.SkippedReasons.Add($"Tugas '{title}' pada sheet '{worksheet.Name}' dilewati karena penamaan proyek tidak tersedia.");
+                                continue;
+                            }
                         }
 
                         var reqCode = colReqCode > 0 ? GetCellString(row, colReqCode) : string.Empty;

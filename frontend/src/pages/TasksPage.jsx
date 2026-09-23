@@ -3375,6 +3375,7 @@ export default function TasksPage({ onlyMyTasks = false }) {
 
                     <div style={{ marginTop: 8, fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                       💡 <strong>Auto-Skip Dashboard / Info:</strong> Halaman pertama berupa cover, informasi, atau dashboard akan otomatis dilewati tanpa error.<br />
+                      💡 <strong>Auto-Skip Proyek & Tugas Tidak Tersedia:</strong> Baris data dengan nama tugas atau nama proyek yang kosong/tidak tersedia di database akan otomatis dilewati (skip) tanpa menghentikan proses impor.<br />
                       💡 <strong>Auto-Create User:</strong> Sheet daftar tim (nama & email) atau sheet bernama orang akan otomatis dibuatkan akun pengguna baru di sistem.<br />
                       💡 <strong>Multi-Sheet & Multi-Proyek:</strong> Tugas di sheet-sheet selanjutnya akan diimpor dan otomatis ditautkan ke pengguna dan proyek yang sesuai.
                     </div>
