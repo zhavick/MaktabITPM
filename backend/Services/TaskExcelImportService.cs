@@ -27,6 +27,10 @@ namespace ProjectManagement.Api.Services
         public List<string> UserSheets { get; set; } = new();
         public int SkippedTasksCount { get; set; } = 0;
         public List<string> SkippedReasons { get; set; } = new();
+        public int IncompleteTasksCount { get; set; } = 0;
+        public List<string> IncompleteReasons { get; set; } = new();
+        public int DuplicateTasksCount { get; set; } = 0;
+        public List<string> DuplicateReasons { get; set; } = new();
     }
 
     public interface ITaskExcelImportService
@@ -418,18 +422,21 @@ namespace ProjectManagement.Api.Services
                             if (string.IsNullOrWhiteSpace(title)) title = GetCellString(row, 1);
                         }
                         
-                        // Jika penamaan task tidak tersedia -> lewati (skip)
+                        // Jika penamaan task tidak tersedia (data tidak lengkap) -> lewati (skip)
                         if (string.IsNullOrWhiteSpace(title) || title == "-" || title.Equals("n/a", StringComparison.OrdinalIgnoreCase) || title.Equals("none", StringComparison.OrdinalIgnoreCase))
                         {
                             package.SkippedTasksCount++;
-                            package.SkippedReasons.Add($"Baris pada sheet '{worksheet.Name}' dilewati karena nama tugas tidak tersedia.");
+                            package.IncompleteTasksCount++;
+                            var reason = $"Baris pada sheet '{worksheet.Name}' dilewati karena data judul/nama tugas tidak lengkap atau kosong.";
+                            package.SkippedReasons.Add(reason);
+                            package.IncompleteReasons.Add(reason);
                             continue;
                         }
 
                         var projInFile = colProject > 0 ? GetCellString(row, colProject) : GetCellString(row, 2);
                         if (string.IsNullOrWhiteSpace(projInFile)) projInFile = GetCellString(row, 2);
 
-                        // Jika penamaan project tidak tersedia di baris Excel
+                        // Jika penamaan project tidak tersedia di baris Excel (data tidak lengkap)
                         if (string.IsNullOrWhiteSpace(projInFile) || projInFile == "-" || projInFile.Equals("n/a", StringComparison.OrdinalIgnoreCase) || projInFile.Equals("none", StringComparison.OrdinalIgnoreCase))
                         {
                             if (!string.IsNullOrWhiteSpace(defaultProjectName))
@@ -442,9 +449,12 @@ namespace ProjectManagement.Api.Services
                             }
                             else
                             {
-                                // Penamaan project tidak tersedia -> lewati (skip) sesuai permintaan user
+                                // Penamaan project tidak lengkap / tidak tersedia -> lewati (skip)
                                 package.SkippedTasksCount++;
-                                package.SkippedReasons.Add($"Tugas '{title}' pada sheet '{worksheet.Name}' dilewati karena penamaan proyek tidak tersedia.");
+                                package.IncompleteTasksCount++;
+                                var reason = $"Tugas '{title}' pada sheet '{worksheet.Name}' dilewati karena informasi nama proyek tidak lengkap atau tidak tersedia.";
+                                package.SkippedReasons.Add(reason);
+                                package.IncompleteReasons.Add(reason);
                                 continue;
                             }
                         }

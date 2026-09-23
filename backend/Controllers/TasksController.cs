@@ -1032,6 +1032,23 @@ namespace ProjectManagement.Api.Controllers
 
             // 2. Resolve project for each task based on Excel project_name column
             // Aturan: Jika penamaan project, task, dll tidak tersedia di database atau file, skip saja (jangan buat proyek otomatis)
+            // Validasi duplikasi & data tidak lengkap:
+            var existingTasks = await _context.Tasks
+                .Select(t => new { t.ProjectId, t.Title })
+                .ToListAsync();
+
+            var existingTaskKeySet = new HashSet<string>(
+                existingTasks.Select(t => $"{t.ProjectId}:::{t.Title.Trim().ToLowerInvariant()}"),
+                StringComparer.OrdinalIgnoreCase
+            );
+
+            var currentBatchKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var duplicateReasons = new List<string>();
+            int duplicateCount = 0;
+            var incompleteReasons = new List<string>(package.IncompleteReasons);
+            int incompleteCount = package.IncompleteTasksCount;
+
             var validTasksToInsert = new List<TaskItem>();
             var matchedProjectsMap = new Dictionary<string, Project>(StringComparer.OrdinalIgnoreCase);
             var skippedUnavailableProjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1047,7 +1064,10 @@ namespace ProjectManagement.Api.Controllers
                 if (string.IsNullOrWhiteSpace(targetName) || targetName == "-" || targetName.Equals("n/a", StringComparison.OrdinalIgnoreCase) || targetName.Equals("none", StringComparison.OrdinalIgnoreCase))
                 {
                     package.SkippedTasksCount++;
-                    package.SkippedReasons.Add($"Tugas '{item.Task.Title}' dilewati karena nama proyek tidak tersedia.");
+                    incompleteCount++;
+                    var incReason = $"Tugas '{item.Task.Title}' dilewati karena informasi nama proyek tidak lengkap atau tidak tersedia.";
+                    incompleteReasons.Add(incReason);
+                    package.SkippedReasons.Add(incReason);
                     continue;
                 }
 
@@ -1075,6 +1095,19 @@ namespace ProjectManagement.Api.Controllers
                     continue;
                 }
 
+                // Validasi Duplikasi: Cek apakah tugas dengan judul yang sama pada proyek yang sama sudah ada di DB atau di batch saat ini
+                var taskKey = $"{matchedProject.Id}:::{item.Task.Title.Trim().ToLowerInvariant()}";
+                if (existingTaskKeySet.Contains(taskKey) || currentBatchKeys.Contains(taskKey))
+                {
+                    duplicateCount++;
+                    package.SkippedTasksCount++;
+                    var dupReason = $"Tugas '{item.Task.Title}' pada proyek '{matchedProject.Name}' dilewati karena terdeteksi duplikasi.";
+                    duplicateReasons.Add(dupReason);
+                    package.SkippedReasons.Add(dupReason);
+                    continue;
+                }
+
+                currentBatchKeys.Add(taskKey);
                 item.Task.ProjectId = matchedProject.Id;
                 item.Task.Project = null; // Detach reference for clean insert
                 validTasksToInsert.Add(item.Task);
@@ -1088,9 +1121,12 @@ namespace ProjectManagement.Api.Controllers
 
             if (validTasksToInsert.Count == 0 && createdUsersList.Count == 0)
             {
-                var reasonSummary = package.SkippedReasons.Count > 0 
-                    ? string.Join("; ", package.SkippedReasons.Take(3))
-                    : "Penamaan proyek atau tugas tidak tersedia di sistem.";
+                var detailNotes = new List<string>();
+                if (duplicateCount > 0) detailNotes.Add($"{duplicateCount} duplikasi");
+                if (incompleteCount > 0) detailNotes.Add($"{incompleteCount} data tidak lengkap");
+                if (skippedUnavailableProjects.Count > 0) detailNotes.Add($"{skippedUnavailableProjects.Count} proyek belum terdaftar");
+
+                var reasonDetail = detailNotes.Count > 0 ? string.Join(", ", detailNotes) : "proyek atau tugas tidak tersedia di sistem";
 
                 return Ok(new
                 {
@@ -1100,16 +1136,24 @@ namespace ProjectManagement.Api.Controllers
                     projectNames = new List<string>(),
                     skippedTasksCount = package.SkippedTasksCount,
                     skippedReasons = package.SkippedReasons,
+                    duplicateCount = duplicateCount,
+                    duplicateReasons = duplicateReasons,
+                    incompleteCount = incompleteCount,
+                    incompleteReasons = incompleteReasons,
                     newUsersCount = 0,
                     newUsers = new List<object>(),
                     skippedSheets = package.SkippedSheets,
                     processedSheets = package.ProcessedSheets,
-                    message = $"Tidak ada tugas yang diimpor. Sebanyak {package.SkippedTasksCount} tugas dilewati karena proyek atau tugas tidak tersedia di sistem ({reasonSummary}).",
+                    message = $"Tidak ada tugas baru yang diimpor. Sebanyak {package.SkippedTasksCount} tugas dilewati ({reasonDetail}).",
                     data = new
                     {
                         importedCount = 0,
+                        duplicateCount = duplicateCount,
+                        incompleteCount = incompleteCount,
                         skippedTasksCount = package.SkippedTasksCount,
                         skippedReasons = package.SkippedReasons,
+                        duplicateReasons = duplicateReasons,
+                        incompleteReasons = incompleteReasons,
                         projectsCount = 0,
                         projectNames = new List<string>(),
                         newUsersCount = 0,
@@ -1140,9 +1184,17 @@ namespace ProjectManagement.Api.Controllers
             {
                 msgParts.Add($"Berhasil mengimpor {validTasksToInsert.Count} tugas ke dalam {distinctProjects.Count} proyek ({projectSummary})");
             }
-            if (package.SkippedTasksCount > 0)
+            if (duplicateCount > 0)
             {
-                msgParts.Add($"melewati {package.SkippedTasksCount} tugas yang proyek/namanya tidak tersedia");
+                msgParts.Add($"melewati {duplicateCount} tugas duplikat");
+            }
+            if (incompleteCount > 0)
+            {
+                msgParts.Add($"melewati {incompleteCount} tugas dengan data tidak lengkap");
+            }
+            if (skippedUnavailableProjects.Count > 0)
+            {
+                msgParts.Add($"melewati tugas dari {skippedUnavailableProjects.Count} proyek yang belum terdaftar");
             }
             if (createdUsersList.Count > 0)
             {
@@ -1158,7 +1210,7 @@ namespace ProjectManagement.Api.Controllers
             var finalMessage = string.Join(", ", msgParts) + "!";
 
             await _auditService.LogAsync("TASKS_IMPORTED_EXCEL", "Tasks", 
-                $"{validTasksToInsert.Count} tugas diimpor dari Excel '{dto.File.FileName}'. {package.SkippedTasksCount} tugas dilewati. {createdUsersList.Count} user baru dibuat. {package.SkippedSheets.Count} sheet dilewati.", 
+                $"{validTasksToInsert.Count} tugas diimpor dari Excel '{dto.File.FileName}'. {duplicateCount} duplikat dilewati. {incompleteCount} data tidak lengkap dilewati. {package.SkippedTasksCount} total tugas dilewati. {createdUsersList.Count} user baru dibuat.", 
                 "Info", null, currentUserName, currentUserRole);
 
             // Broadcast real-time update to all clients
@@ -1179,6 +1231,10 @@ namespace ProjectManagement.Api.Controllers
                 projectNames = distinctProjects,
                 skippedTasksCount = package.SkippedTasksCount,
                 skippedReasons = package.SkippedReasons,
+                duplicateCount = duplicateCount,
+                duplicateReasons = duplicateReasons,
+                incompleteCount = incompleteCount,
+                incompleteReasons = incompleteReasons,
                 newUsersCount = createdUsersList.Count,
                 newUsers = createdUsersList.Select(u => new { u.Id, u.FullName, u.Email, u.Role }).ToList(),
                 skippedSheets = package.SkippedSheets,
@@ -1187,8 +1243,12 @@ namespace ProjectManagement.Api.Controllers
                 data = new
                 {
                     importedCount = validTasksToInsert.Count,
+                    duplicateCount = duplicateCount,
+                    incompleteCount = incompleteCount,
                     skippedTasksCount = package.SkippedTasksCount,
                     skippedReasons = package.SkippedReasons,
+                    duplicateReasons = duplicateReasons,
+                    incompleteReasons = incompleteReasons,
                     projectsCount = distinctProjects.Count,
                     projectNames = distinctProjects,
                     newUsersCount = createdUsersList.Count,

@@ -463,11 +463,15 @@ namespace ProjectManagement.Api.Data
 
         public static void SeedMasterData(AppDbContext context)
         {
-            if (context.MasterDataItems.Any()) return;
-
             var masterList = new List<MasterDataItem>
             {
-                // Kategori (Category)
+                // Status Tugas (Task Status)
+                new MasterDataItem { Type = "Status", Code = "TODO", Name = "To Do", Description = "Tugas baru belum dikerjakan", BadgeColor = "#64748b", SortOrder = 1 },
+                new MasterDataItem { Type = "Status", Code = "IN_PROGRESS", Name = "In Progress", Description = "Tugas sedang dalam pengerjaan aktif", BadgeColor = "#6366f1", SortOrder = 2 },
+                new MasterDataItem { Type = "Status", Code = "IN_REVIEW", Name = "In Review", Description = "Tugas dalam proses pengujian dan review tim", BadgeColor = "#f59e0b", SortOrder = 3 },
+                new MasterDataItem { Type = "Status", Code = "DONE", Name = "Done", Description = "Tugas telah selesai dan diverifikasi", BadgeColor = "#10b981", SortOrder = 4 },
+
+                // Kategori (Category / Jenis Task)
                 new MasterDataItem { Type = "Category", Code = "ENHANCEMENT", Name = "Enhancement", Description = "Pengembangan dan penambahan fitur baru pada sistem", BadgeColor = "#6366f1", SortOrder = 1 },
                 new MasterDataItem { Type = "Category", Code = "NEW_APPLICATION", Name = "New Application", Description = "Pembangunan aplikasi baru dari awal", BadgeColor = "#3b82f6", SortOrder = 2 },
                 new MasterDataItem { Type = "Category", Code = "BUG", Name = "Bug Fixing", Description = "Perbaikan kendala atau galat fungsional sistem", BadgeColor = "#ef4444", SortOrder = 3 },
@@ -485,13 +489,24 @@ namespace ProjectManagement.Api.Data
                 new MasterDataItem { Type = "Priority", Code = "MEDIUM", Name = "Medium", Description = "Prioritas normal dalam alur kerja reguler", BadgeColor = "#3b82f6", SortOrder = 3 },
                 new MasterDataItem { Type = "Priority", Code = "LOW", Name = "Low", Description = "Prioritas rendah / perbaikan minor", BadgeColor = "#64748b", SortOrder = 4 },
 
-                // Milestone SDLC
-                new MasterDataItem { Type = "Milestone", Code = "M1-ANALYSIS", Name = "Inisiasi & Analisis Kebutuhan", Description = "Tahap penelaahan ruang lingkup dan spesifikasi BRD", BadgeColor = "#6366f1", SortOrder = 1 },
-                new MasterDataItem { Type = "Milestone", Code = "M2-DESIGN", Name = "Perancangan FSD & TSD", Description = "Penyusunan arsitektur sistem dan desain API", BadgeColor = "#8b5cf6", SortOrder = 2 },
-                new MasterDataItem { Type = "Milestone", Code = "M3-DEV", Name = "Pengembangan & Integrasi API", Description = "Tahap coding modul backend dan frontend", BadgeColor = "#3b82f6", SortOrder = 3 },
-                new MasterDataItem { Type = "Milestone", Code = "M4-QA", Name = "Pengujian QA & Security", Description = "Verifikasi pengujian sistem dan uji penetrasi", BadgeColor = "#f59e0b", SortOrder = 4 },
-                new MasterDataItem { Type = "Milestone", Code = "M5-UAT", Name = "User Acceptance Testing (UAT)", Description = "Uji coba dan penandatanganan BA UAT oleh klien", BadgeColor = "#10b981", SortOrder = 5 },
-                new MasterDataItem { Type = "Milestone", Code = "M6-GOLIVE", Name = "Deployment & Go-Live", Description = "Peluncuran resmi ke lingkungan produksi", BadgeColor = "#06b6d4", SortOrder = 6 },
+                // Milestone / Module Name (SDLC & Modul Sistem Tracker)
+                new MasterDataItem { Type = "Milestone", Code = "TCES", Name = "TCES", Description = "Modul Integrasi TCES", BadgeColor = "#6366f1", SortOrder = 1 },
+                new MasterDataItem { Type = "Milestone", Code = "STAGING_CLOUD", Name = "Staging Cloud", Description = "Modul Staging Cloud & DevOps", BadgeColor = "#0284c7", SortOrder = 2 },
+                new MasterDataItem { Type = "Milestone", Code = "TTS", Name = "TTS", Description = "Modul Tugu Ticketing System", BadgeColor = "#8b5cf6", SortOrder = 3 },
+                new MasterDataItem { Type = "Milestone", Code = "DOTS_REQ", Name = "DOTS Request", Description = "Modul Permintaan Layanan DOTS", BadgeColor = "#10b981", SortOrder = 4 },
+                new MasterDataItem { Type = "Milestone", Code = "RETAIL", Name = "Retail", Description = "Modul Retail & Mass Product", BadgeColor = "#f59e0b", SortOrder = 5 },
+                new MasterDataItem { Type = "Milestone", Code = "POLICY_AUTO", Name = "Policy Automation", Description = "Modul Automasi Polis Asuransi", BadgeColor = "#ec4899", SortOrder = 6 },
+                new MasterDataItem { Type = "Milestone", Code = "ADMIN", Name = "Administration", Description = "Modul Administrasi Sistem", BadgeColor = "#64748b", SortOrder = 7 },
+                new MasterDataItem { Type = "Milestone", Code = "TICS_REPORT", Name = "TICS Reporting", Description = "Modul Pelaporan & Analytics TICS", BadgeColor = "#06b6d4", SortOrder = 8 },
+                new MasterDataItem { Type = "Milestone", Code = "MASTER_DATA", Name = "Master Data", Description = "Modul Pengelolaan Master Data", BadgeColor = "#14b8a6", SortOrder = 9 },
+                new MasterDataItem { Type = "Milestone", Code = "PROJECT", Name = "Project", Description = "Modul Tata Kelola Proyek", BadgeColor = "#3b82f6", SortOrder = 10 },
+                new MasterDataItem { Type = "Milestone", Code = "TICS", Name = "TICS", Description = "Modul Core Engine TICS", BadgeColor = "#f97316", SortOrder = 11 },
+                new MasterDataItem { Type = "Milestone", Code = "M1-ANALYSIS", Name = "Inisiasi & Analisis Kebutuhan", Description = "Tahap penelaahan ruang lingkup dan spesifikasi BRD", BadgeColor = "#6366f1", SortOrder = 12 },
+                new MasterDataItem { Type = "Milestone", Code = "M2-DESIGN", Name = "Perancangan FSD & TSD", Description = "Penyusunan arsitektur sistem dan desain API", BadgeColor = "#8b5cf6", SortOrder = 13 },
+                new MasterDataItem { Type = "Milestone", Code = "M3-DEV", Name = "Pengembangan & Integrasi API", Description = "Tahap coding modul backend dan frontend", BadgeColor = "#3b82f6", SortOrder = 14 },
+                new MasterDataItem { Type = "Milestone", Code = "M4-QA", Name = "Pengujian QA & Security", Description = "Verifikasi pengujian sistem dan uji penetrasi", BadgeColor = "#f59e0b", SortOrder = 15 },
+                new MasterDataItem { Type = "Milestone", Code = "M5-UAT", Name = "User Acceptance Testing (UAT)", Description = "Uji coba dan penandatanganan BA UAT oleh klien", BadgeColor = "#10b981", SortOrder = 16 },
+                new MasterDataItem { Type = "Milestone", Code = "M6-GOLIVE", Name = "Deployment & Go-Live", Description = "Peluncuran resmi ke lingkungan produksi", BadgeColor = "#06b6d4", SortOrder = 17 },
 
                 // Jenis User (User Types / Roles)
                 new MasterDataItem { Type = "UserType", Code = "ADMIN", Name = "System Administrator", Description = "Akses administratif penuh ke seluruh modul sistem", BadgeColor = "#ef4444", SortOrder = 1 },
@@ -509,7 +524,138 @@ namespace ProjectManagement.Api.Data
                 new MasterDataItem { Type = "ProjectType", Code = "RND", Name = "Research & Prototyping (R&D)", Description = "Riset eksploratif, PoC inovasi, dan teknologi baru", BadgeColor = "#ec4899", SortOrder = 6 }
             };
 
-            context.MasterDataItems.AddRange(masterList);
+            foreach (var item in masterList)
+            {
+                var exists = context.MasterDataItems.Any(m => m.Type.ToLower() == item.Type.ToLower() && m.Code.ToLower() == item.Code.ToLower());
+                if (!exists)
+                {
+                    context.MasterDataItems.Add(item);
+                }
+            }
+            context.SaveChanges();
+        }
+
+        public static void SeedProjectsFromTracker(AppDbContext context)
+        {
+            var trackerProjects = new[]
+            {
+                "Integrasi TCES TICS",
+                "Staging Cloud",
+                "Tugu Ticketing System v2",
+                "API Settlement Payment",
+                "DOTS",
+                "TICS_V2 - RnD",
+                "Pengembangan Mass Product Retail",
+                "TICS - Policy Retail",
+                "TICS - Corporate",
+                "Pemindahan API Care ke TICS",
+                "TICS - Reinsurance",
+                "TICS V2",
+                "TICS (Claim-Corporate)",
+                "TCES",
+                "TICS-POLICY-CORPORATE",
+                "Bengkel Net",
+                "Bidding App SKK Migas",
+                "Cybersecurity - Blokir Domain",
+                "Cybersecurity - Patching Aplikasi",
+                "Cybersecurity - People Awarness",
+                "Cybersecurity - Rotasi Password",
+                "Cybersecurity - Scanning Seluruh Perangkat",
+                "DOTS - Uang Muka Kerja",
+                "DOTS SAP Integration",
+                "Enhance tDMS - Policy Workflow",
+                "Enhancement Extend PPW Polis Korporat",
+                "Enhancement SAP",
+                "Enhancement TICS - Occupancy Code",
+                "Enhancement Tugu Tabs",
+                "Evaluasi Master Data",
+                "Item #545",
+                "Kesiagaan Siber Pada Event Idul Fitri",
+                "Memo Formulir - In House Training (t-DMS)",
+                "Migrasi Datawarehouse ke Cloud",
+                "New System - Application Request Management System (ARMS)",
+                "Otomatisasi Proses Extract Data BAF R4 ke TICS",
+                "PERURI - Tugu SecureSign",
+                "Pemindahan API dari CARE ke TICS - BAF R2",
+                "Pemindahan API dari CARE ke TICS - Tfriends",
+                "Penambahan Report Warranty Date Policy Corporat",
+                "Penambahan Status Flagging Product Pada Object Batch TICS Corporate Policy",
+                "Pengadaan Google Cloud",
+                "Pengadaan Lisensi Firewall",
+                "Penyediaan VPN Forti",
+                "SAP - Cash Flow",
+                "SAP - Coding Blok",
+                "SAP - Corp Card",
+                "SAP - FPSL",
+                "SAP - ZFIR026",
+                "SAP -Security",
+                "SKK MIGAS",
+                "SOA Treaty",
+                "Sharepoint - tDMS",
+                "TCES - Polis",
+                "TDMS - Sistem Tata Kelola",
+                "TEST",
+                "TICS - Claim",
+                "TICS - Pre Enforce",
+                "TICS Corporate Enhancement",
+                "TICS Enh - Warranty Date",
+                "TICS PA - Penambahan Payment Info",
+                "TICS PA - Perubahan Dokumen SPAU",
+                "Training User SAP",
+                "TuFleet",
+                "Tugu SecureSign",
+                "Validasi Data TICS melalui Invoice Header dan Detail -  Policy Automation",
+                "Validasi TICS -  Policy Automation Retail",
+                "Validasi TICS -  Reinsurance",
+                "Validasi TICS - Master Data",
+                "Validasi TICS - Policy Automation"
+            };
+
+            var presetColors = new[] { "#4f46e5", "#10b981", "#0284c7", "#f59e0b", "#e11d48", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6", "#f97316" };
+            var existingProjects = context.Projects.ToList();
+            int colorIdx = existingProjects.Count;
+
+            foreach (var pName in trackerProjects)
+            {
+                var cleanName = pName.Trim();
+                if (string.IsNullOrWhiteSpace(cleanName)) continue;
+
+                var exists = existingProjects.Any(p => p.Name.Equals(cleanName, StringComparison.OrdinalIgnoreCase));
+                if (!exists)
+                {
+                    // Generate unique code
+                    var words = cleanName.Split(new[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+                    var initials = words.Length > 1
+                        ? string.Concat(words.Take(3).Select(w => char.ToUpper(w[0])))
+                        : (cleanName.Length >= 3 ? cleanName.Substring(0, 3).ToUpper() : "PRJ");
+
+                    var code = initials;
+                    int suffix = 1;
+                    while (existingProjects.Any(p => p.Code.Equals(code, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        code = $"{initials}{suffix++}";
+                    }
+
+                    var newProj = new Project
+                    {
+                        Name = cleanName.Length > 150 ? cleanName.Substring(0, 150) : cleanName,
+                        Code = code,
+                        Description = $"Proyek portfolio sistem: {cleanName}",
+                        ClientName = "Internal Enterprise",
+                        Status = "Active",
+                        ProjectType = "API & System Integration",
+                        Color = presetColors[colorIdx % presetColors.Length],
+                        StartDate = DateTime.UtcNow.AddMonths(-1),
+                        CreatedByUserId = 1,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    context.Projects.Add(newProj);
+                    existingProjects.Add(newProj);
+                    colorIdx++;
+                }
+            }
+
             context.SaveChanges();
         }
     }

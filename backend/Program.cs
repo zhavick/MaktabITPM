@@ -214,6 +214,7 @@ using (var scope = app.Services.CreateScope())
 
         AppDbContext.SeedData(db);
         AppDbContext.SeedMasterData(db);
+        AppDbContext.SeedProjectsFromTracker(db);
 
         // Seed initial SystemConfig if empty
         if (!db.SystemConfigs.Any())

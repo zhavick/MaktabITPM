@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 import api from '../utils/api';
 import Select2 from '../components/Select2';
-import { showToast, confirmDialog, promptDialog, errorAlert } from '../utils/swal';
+import Swal, { showToast, confirmDialog, promptDialog, errorAlert } from '../utils/swal';
 import { useSync } from '../context/SyncContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -484,10 +484,37 @@ export default function TasksPage({ onlyMyTasks = false }) {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       if (res.data.success) {
-        showToast(res.data.message, 'success');
         setShowImportModal(false);
         setImportFile(null);
         fetchInitialData();
+
+        const dupCount = res.data.duplicateCount || res.data.data?.duplicateCount || 0;
+        const incCount = res.data.incompleteCount || res.data.data?.incompleteCount || 0;
+        const impCount = res.data.count ?? res.data.data?.importedCount ?? 0;
+
+        if (dupCount > 0 || incCount > 0) {
+          const detailList = [];
+          if (impCount > 0) detailList.push(`✅ <strong>${impCount}</strong> tugas berhasil diimpor`);
+          if (dupCount > 0) detailList.push(`⚠️ <strong>${dupCount}</strong> tugas dilewati karena terdeteksi duplikasi`);
+          if (incCount > 0) detailList.push(`ℹ️ <strong>${incCount}</strong> baris dilewati karena data tidak lengkap (judul/proyek kosong)`);
+
+          Swal.fire({
+            title: impCount > 0 ? 'Hasil Impor Excel' : 'Perhatian Impor Excel',
+            html: `
+              <div style="text-align: left; font-size: 14px; line-height: 1.6;">
+                <p style="margin-bottom: 12px; color: var(--text-secondary, #475569);">${res.data.message}</p>
+                <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); padding: 12px; border-radius: 8px;">
+                  ${detailList.map(item => `<div style="margin: 4px 0;">${item}</div>`).join('')}
+                </div>
+              </div>
+            `,
+            icon: impCount > 0 ? 'success' : 'warning',
+            confirmButtonColor: '#6366f1',
+            confirmButtonText: 'Mengerti'
+          });
+        } else {
+          showToast(res.data.message, 'success');
+        }
       }
     } catch (err) {
       errorAlert('Gagal Mengimpor', err.response?.data?.message || 'Terjadi kesalahan saat memproses berkas Excel.');
