@@ -2002,30 +2002,29 @@ export default function TasksPage({ onlyMyTasks = false }) {
                           transition: 'transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease'
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {/* Header: Grip + Kode Task, Prioritas, & Tombol Edit */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <GripVertical size={13} style={{ color: 'var(--text-muted)', opacity: 0.5, cursor: 'grab' }} />
                             <span 
                               style={{ 
-                                fontSize: '0.65rem', 
+                                fontSize: '0.72rem', 
                                 fontWeight: 700, 
-                                padding: '2px 7px',
-                                borderRadius: '4px',
-                                backgroundColor: `${task.projectColor || '#6366f1'}18`,
-                                color: task.projectColor || '#6366f1',
-                                border: `1px solid ${task.projectColor || '#6366f1'}40`,
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 4
+                                fontFamily: 'monospace',
+                                color: 'var(--text-muted)',
+                                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                border: '1px solid var(--border-color)',
+                                letterSpacing: '0.02em'
                               }}
-                              title={`Proyek: ${task.projectName || task.projectCode}`}
+                              title={`Kode Task: #${task.id}`}
                             >
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: task.projectColor || '#6366f1' }}></span>
-                              {task.projectCode}
+                              #{task.projectCode ? `${task.projectCode}-${task.id}` : `TASK-${task.id}`}
                             </span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span className={`badge ${priorityBadgeClass(task.priority)}`}>
+                            <span className={`badge ${priorityBadgeClass(task.priority)}`} style={{ fontSize: '0.68rem', padding: '2px 7px' }}>
                               {task.priority}
                             </span>
                             <button
@@ -2053,12 +2052,14 @@ export default function TasksPage({ onlyMyTasks = false }) {
                           </div>
                         </div>
 
+                        {/* Nama Task */}
                         <h4 
                           onClick={() => openEditModal(task)}
                           style={{ 
-                            fontSize: '0.925rem', 
-                            fontWeight: 700, 
-                            marginBottom: 6, 
+                            fontSize: '0.92rem', 
+                            fontWeight: 600, 
+                            lineHeight: 1.35,
+                            margin: '4px 0 8px 0', 
                             color: 'var(--text-primary)',
                             cursor: 'pointer' 
                           }}
@@ -2067,7 +2068,35 @@ export default function TasksPage({ onlyMyTasks = false }) {
                           {task.title}
                         </h4>
 
-                        {/* Pending Deletion Warning Box on Kanban Card */}
+                        {/* Nama Project */}
+                        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center' }}>
+                          <span 
+                            style={{ 
+                              fontSize: '0.7rem', 
+                              fontWeight: 600, 
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              backgroundColor: `${task.projectColor || '#6366f1'}15`,
+                              color: task.projectColor || '#6366f1',
+                              border: `1px solid ${task.projectColor || '#6366f1'}35`,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              maxWidth: '100%',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title={`Proyek: ${task.projectName || task.projectCode}`}
+                          >
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: task.projectColor || '#6366f1', flexShrink: 0 }}></span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {task.projectName || task.projectCode || 'Tanpa Proyek'}
+                            </span>
+                          </span>
+                        </div>
+
+                        {/* Pending Deletion Warning Box on Kanban Card (jika ada) */}
                         {task.isPendingDeletion && (
                           <div style={{
                             background: 'rgba(245, 158, 11, 0.12)',
@@ -2132,111 +2161,77 @@ export default function TasksPage({ onlyMyTasks = false }) {
                           </div>
                         )}
 
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.4 }}>
-                          {task.description}
-                        </p>
-
-                        {(task.category || task.milestone) && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                            {task.category && (
-                              <span 
-                                style={{ 
-                                  fontSize: '0.65rem', 
-                                  fontWeight: 700, 
-                                  padding: '2px 6px', 
-                                  borderRadius: '4px', 
-                                  background: 'rgba(99, 102, 241, 0.12)', 
-                                  color: 'var(--primary)',
-                                  border: '1px solid rgba(99, 102, 241, 0.25)' 
-                                }}
-                              >
-                                {task.category}
-                              </span>
-                            )}
-                            {task.milestone && (
-                              <span 
-                                style={{ 
-                                  fontSize: '0.65rem', 
-                                  fontWeight: 600, 
-                                  padding: '2px 6px', 
-                                  borderRadius: '4px', 
-                                  background: 'rgba(16, 185, 129, 0.12)', 
-                                  color: 'var(--success)',
-                                  border: '1px solid rgba(16, 185, 129, 0.25)' 
-                                }}
-                              >
-                                🚩 {task.milestone}
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: 10, marginTop: 4 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#4f46e5', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                        {/* Footer: Pengguna (Assignee) & Status Tugas */}
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'space-between', 
+                          borderTop: '1px solid var(--border-color)', 
+                          paddingTop: 8, 
+                          marginTop: 2,
+                          gap: 8
+                        }}>
+                          {/* Pengguna (Assignee) */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+                            <div style={{ 
+                              width: 22, 
+                              height: 22, 
+                              borderRadius: '50%', 
+                              background: '#4f46e5', 
+                              color: '#fff', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              fontWeight: 'bold', 
+                              fontSize: '0.68rem',
+                              flexShrink: 0 
+                            }}>
                               {task.assigneeName ? task.assigneeName.charAt(0) : '?'}
                             </div>
-                            <span style={{ maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span 
+                              style={{ 
+                                fontSize: '0.75rem', 
+                                color: 'var(--text-secondary)', 
+                                fontWeight: 500,
+                                overflow: 'hidden', 
+                                textOverflow: 'ellipsis', 
+                                whiteSpace: 'nowrap' 
+                              }}
+                              title={task.assigneeName ? `Pengguna: ${task.assigneeName}` : 'Belum ditugaskan'}
+                            >
                               {task.assigneeName || 'Belum ditugaskan'}
                             </span>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openEditModal(task, 'comments');
-                              }}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                color: task.commentCount > 0 ? 'var(--primary)' : 'var(--text-muted)',
-                                cursor: 'pointer',
-                                padding: '2px 4px',
-                                borderRadius: 4,
-                                fontSize: '0.74rem',
-                                fontWeight: 600
-                              }}
-                              title="Diskusi & Komentar Tugas"
-                            >
-                              <MessageSquare size={13} />
-                              <span>{task.commentCount || 0}</span>
-                            </button>
-                            {task.estimatedHours > 0 && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <Clock size={13} />
-                                <span>{task.estimatedHours}h</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
 
-                        {/* Status Next Action Buttons */}
-                        <div style={{ display: 'flex', gap: 4, marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)', justifyContent: 'flex-end' }}>
-                          {col.id !== 'Todo' && (
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              style={{ padding: '2px 6px', fontSize: '0.7rem' }}
-                              onClick={() => handleStatusChange(task.id, col.id === 'Done' ? 'InReview' : col.id === 'InReview' ? 'InProgress' : 'Todo')}
-                              title="Mundurkan status"
+                          {/* Status */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                            <span 
+                              style={{ 
+                                fontSize: '0.68rem', 
+                                fontWeight: 600, 
+                                padding: '2px 7px',
+                                borderRadius: 4,
+                                background: 
+                                  task.status === 'Done' ? 'rgba(16, 185, 129, 0.15)' :
+                                  task.status === 'InReview' ? 'rgba(245, 158, 11, 0.15)' :
+                                  task.status === 'InProgress' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                                color: 
+                                  task.status === 'Done' ? '#10b981' :
+                                  task.status === 'InReview' ? '#f59e0b' :
+                                  task.status === 'InProgress' ? '#6366f1' : '#94a3b8',
+                                border: `1px solid ${
+                                  task.status === 'Done' ? 'rgba(16, 185, 129, 0.3)' :
+                                  task.status === 'InReview' ? 'rgba(245, 158, 11, 0.3)' :
+                                  task.status === 'InProgress' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(148, 163, 184, 0.3)'
+                                }`
+                              }}
                             >
-                              ◀
-                            </button>
-                          )}
-                          {col.id !== 'Done' && (
-                            <button
-                              className="btn btn-primary btn-sm"
-                              style={{ padding: '2px 8px', fontSize: '0.7rem' }}
-                              onClick={() => handleStatusChange(task.id, col.id === 'Todo' ? 'InProgress' : col.id === 'InProgress' ? 'InReview' : 'Done')}
-                              title="Majukan status"
-                            >
-                              <span>Lanjut</span>
-                              <ArrowRight size={12} />
-                            </button>
-                          )}
+                              {task.status === 'Todo' ? 'To Do' :
+                               task.status === 'InProgress' ? 'In Progress' :
+                               task.status === 'InReview' ? 'In Review' :
+                               task.status === 'Done' ? 'Done' : task.status}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     ))
