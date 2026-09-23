@@ -533,6 +533,17 @@ namespace ProjectManagement.Api.Services
                         EnsureRoleUsersExist(masterDataEmails, "InternalEmployee");
                         EnsureRoleUsersExist(techWriterEmails, "InternalEmployee");
 
+                        // Start date parsing
+                        DateTime? startDate = null;
+                        if (!string.IsNullOrWhiteSpace(startDateStr))
+                        {
+                            if (DateTime.TryParse(startDateStr, CultureInfo.InvariantCulture, DateTimeStyles.None, out var sd) ||
+                                DateTime.TryParse(startDateStr, out sd))
+                            {
+                                startDate = DateTime.SpecifyKind(sd, DateTimeKind.Utc);
+                            }
+                        }
+
                         // Due date parsing
                         DateTime? dueDate = null;
                         if (!string.IsNullOrWhiteSpace(dueDateStr))
@@ -654,6 +665,7 @@ namespace ProjectManagement.Api.Services
                             Status = status,
                             Priority = priority,
                             AssigneeId = assigneeId,
+                            StartDate = startDate,
                             DueDate = dueDate,
                             EstimatedHours = 8.00m,
                             CreatedAt = DateTime.UtcNow

@@ -36,6 +36,7 @@ namespace ProjectManagement.Api.Models
         public int? AssigneeId { get; set; }
         public User? Assignee { get; set; }
 
+        public DateTime? StartDate { get; set; }
         public DateTime? DueDate { get; set; }
 
         [Column(TypeName = "decimal(6, 2)")]

@@ -22,6 +22,9 @@ import {
   Trash2,
   FileText,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
   Edit3,
   Flag,
   UserCheck,
@@ -70,7 +73,16 @@ export default function TasksPage({ onlyMyTasks = false }) {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [filterPendingDeletion, setFilterPendingDeletion] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState('kanban'); // 'kanban' | 'grid'
+  const [viewMode, setViewMode] = useState('kanban'); // 'kanban' | 'grid' | 'calendar' | 'timeline'
+  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [ganttStartDate, setGanttStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 5);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const ganttDaysCount = 30;
+
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -102,6 +114,7 @@ export default function TasksPage({ onlyMyTasks = false }) {
     category: '',
     milestone: '',
     assigneeId: null,
+    startDate: '',
     dueDate: '',
     estimatedHours: 8,
   });
@@ -407,7 +420,12 @@ export default function TasksPage({ onlyMyTasks = false }) {
       return;
     }
     try {
-      const res = await api.post('/tasks', newTask);
+      const payload = {
+        ...newTask,
+        startDate: newTask.startDate ? new Date(newTask.startDate).toISOString() : null,
+        dueDate: newTask.dueDate ? new Date(newTask.dueDate).toISOString() : null,
+      };
+      const res = await api.post('/tasks', payload);
       if (res.data.success) {
         showToast('Tugas baru berhasil dibuat!');
         setShowModal(false);
@@ -421,6 +439,7 @@ export default function TasksPage({ onlyMyTasks = false }) {
           category: '',
           milestone: '',
           assigneeId: (isMyTasks && user?.id) ? user.id : null,
+          startDate: '',
           dueDate: '',
           estimatedHours: 8,
         });
@@ -531,6 +550,7 @@ export default function TasksPage({ onlyMyTasks = false }) {
       category: task.category || '',
       milestone: task.milestone || '',
       assigneeId: task.assigneeId || null,
+      startDate: task.startDate ? task.startDate.slice(0, 10) : '',
       dueDate: task.dueDate ? task.dueDate.slice(0, 10) : '',
       estimatedHours: task.estimatedHours || 0,
       createdAt: task.createdAt,
@@ -637,6 +657,7 @@ export default function TasksPage({ onlyMyTasks = false }) {
         category: editingTask.category || null,
         milestone: editingTask.milestone || null,
         assigneeId: editingTask.assigneeId || null,
+        startDate: editingTask.startDate ? new Date(editingTask.startDate).toISOString() : null,
         dueDate: editingTask.dueDate ? new Date(editingTask.dueDate).toISOString() : null,
         estimatedHours: parseFloat(editingTask.estimatedHours) || 0
       };
@@ -743,6 +764,498 @@ export default function TasksPage({ onlyMyTasks = false }) {
     }
   };
 
+  const monthNamesId = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+
+  const handlePrevMonth = () => {
+    setCalendarDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCalendarDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const handleTodayMonth = () => {
+    setCalendarDate(new Date());
+  };
+
+  const getCalendarDays = () => {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+
+    const firstDayIndex = new Date(year, month, 1).getDay();
+    const adjustedFirstDay = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
+
+    const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+    const days = [];
+
+    // Previous month filler days
+    for (let i = adjustedFirstDay - 1; i >= 0; i--) {
+      const d = new Date(year, month - 1, daysInPrevMonth - i);
+      const mStr = String(d.getMonth() + 1).padStart(2, '0');
+      const dStr = String(d.getDate()).padStart(2, '0');
+      days.push({
+        date: d,
+        dayNum: daysInPrevMonth - i,
+        isCurrentMonth: false,
+        dateString: `${d.getFullYear()}-${mStr}-${dStr}`
+      });
+    }
+
+    // Current month days
+    for (let i = 1; i <= daysInCurrentMonth; i++) {
+      const d = new Date(year, month, i);
+      const mStr = String(month + 1).padStart(2, '0');
+      const dStr = String(i).padStart(2, '0');
+      days.push({
+        date: d,
+        dayNum: i,
+        isCurrentMonth: true,
+        dateString: `${year}-${mStr}-${dStr}`
+      });
+    }
+
+    // Next month filler days to complete rows (35 or 42 cells)
+    const totalCells = days.length <= 35 ? 35 : 42;
+    const remainingDays = totalCells - days.length;
+    for (let i = 1; i <= remainingDays; i++) {
+      const d = new Date(year, month + 1, i);
+      const mStr = String(d.getMonth() + 1).padStart(2, '0');
+      const dStr = String(i).padStart(2, '0');
+      days.push({
+        date: d,
+        dayNum: i,
+        isCurrentMonth: false,
+        dateString: `${d.getFullYear()}-${mStr}-${dStr}`
+      });
+    }
+
+    return days;
+  };
+
+  const handleGanttPrev = () => {
+    setGanttStartDate(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() - 7);
+      return d;
+    });
+  };
+
+  const handleGanttNext = () => {
+    setGanttStartDate(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + 7);
+      return d;
+    });
+  };
+
+  const handleGanttToday = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 5);
+    d.setHours(0, 0, 0, 0);
+    setGanttStartDate(d);
+  };
+
+  const getGanttDays = () => {
+    const days = [];
+    const base = new Date(ganttStartDate);
+    for (let i = 0; i < ganttDaysCount; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
+      days.push(d);
+    }
+    return days;
+  };
+
+  const renderCalendarView = () => {
+    const calDays = getCalendarDays();
+    const curMonthName = monthNamesId[calendarDate.getMonth()];
+    const curYear = calendarDate.getFullYear();
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const tasksThisMonth = filteredTasks.filter(t => {
+      const d = t.dueDate || t.startDate || t.createdAt;
+      if (!d) return false;
+      const taskDate = new Date(d);
+      return taskDate.getMonth() === calendarDate.getMonth() && taskDate.getFullYear() === curYear;
+    }).length;
+
+    return (
+      <div className="task-calendar-card">
+        <div className="task-calendar-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm" 
+                onClick={handlePrevMonth}
+                title="Bulan Sebelumnya"
+                style={{ padding: '6px 10px' }}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm" 
+                onClick={handleTodayMonth}
+                style={{ padding: '6px 12px', fontWeight: 600, fontSize: '0.8rem' }}
+              >
+                Hari Ini
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm" 
+                onClick={handleNextMonth}
+                title="Bulan Berikutnya"
+                style={{ padding: '6px 10px' }}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                {curMonthName} {curYear}
+              </h2>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                • {tasksThisMonth} tugas terdata
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: '0.78rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#94a3b8', display: 'inline-block' }}></span>
+              <span style={{ color: 'var(--text-secondary)' }}>To Do</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366f1', display: 'inline-block' }}></span>
+              <span style={{ color: 'var(--text-secondary)' }}>In Progress</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }}></span>
+              <span style={{ color: 'var(--text-secondary)' }}>In Review</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
+              <span style={{ color: 'var(--text-secondary)' }}>Done</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="task-calendar-grid" style={{ borderBottom: 'none' }}>
+          {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'].map((dayName, idx) => (
+            <div 
+              key={dayName} 
+              className="task-calendar-weekday"
+              style={{ color: idx >= 5 ? '#f43f5e' : 'var(--text-muted)' }}
+            >
+              {dayName}
+            </div>
+          ))}
+        </div>
+
+        <div className="task-calendar-grid">
+          {calDays.map((cell, idx) => {
+            const isToday = cell.dateString === todayStr;
+            const dayTasks = filteredTasks.filter(t => {
+              const dueStr = t.dueDate ? t.dueDate.slice(0, 10) : null;
+              const startStr = t.startDate ? t.startDate.slice(0, 10) : null;
+              return dueStr === cell.dateString || (!dueStr && startStr === cell.dateString);
+            });
+
+            return (
+              <div 
+                key={idx} 
+                className={`task-calendar-day ${isToday ? 'is-today' : ''} ${!cell.isCurrentMonth ? 'other-month' : ''}`}
+              >
+                <div className="day-header">
+                  <span className="day-number">{cell.dayNum}</span>
+                  {dayTasks.length > 0 && (
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', borderRadius: 10, padding: '1px 5px' }}>
+                      {dayTasks.length}
+                    </span>
+                  )}
+                </div>
+
+                <div className="day-tasks-container">
+                  {dayTasks.map(task => {
+                    const statusDotColor = 
+                      task.status === 'Done' ? '#10b981' :
+                      task.status === 'InReview' ? '#f59e0b' :
+                      task.status === 'InProgress' ? '#6366f1' : '#94a3b8';
+
+                    return (
+                      <div
+                        key={task.id}
+                        className="task-cal-pill"
+                        style={{
+                          borderLeft: `3px solid ${task.projectColor || '#6366f1'}`,
+                        }}
+                        onClick={() => openEditModal(task)}
+                        title={`${task.title} (${task.projectName || 'Proyek'})\nStatus: ${task.status} • Prioritas: ${task.priority}`}
+                      >
+                        <span 
+                          style={{ 
+                            width: 6, 
+                            height: 6, 
+                            borderRadius: '50%', 
+                            background: statusDotColor, 
+                            flexShrink: 0 
+                          }} 
+                        />
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {task.title}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderGanttView = () => {
+    const gDays = getGanttDays();
+    const cellWidth = 44;
+    const canvasWidth = gDays.length * cellWidth;
+    const todayTimestamp = new Date().setHours(0, 0, 0, 0);
+
+    const startTimestamp = ganttStartDate.getTime();
+    const diffDaysFromGanttStart = Math.floor((todayTimestamp - startTimestamp) / (1000 * 60 * 60 * 24));
+    const todayMarkerLeft = diffDaysFromGanttStart >= 0 && diffDaysFromGanttStart < ganttDaysCount 
+      ? diffDaysFromGanttStart * cellWidth + 22 
+      : null;
+
+    const startDateStr = gDays[0].toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    const endDateStr = gDays[gDays.length - 1].toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+
+    return (
+      <div className="gantt-card">
+        <div className="gantt-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm" 
+                onClick={handleGanttPrev}
+                title="Mundur 7 Hari"
+                style={{ padding: '6px 10px' }}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm" 
+                onClick={handleGanttToday}
+                style={{ padding: '6px 12px', fontWeight: 600, fontSize: '0.8rem' }}
+              >
+                Hari Ini
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm" 
+                onClick={handleGanttNext}
+                title="Maju 7 Hari"
+                style={{ padding: '6px 10px' }}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                Linimasa Gantt ({startDateStr} - {endDateStr})
+              </h2>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                • {filteredTasks.length} tugas terdata
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 14, height: 2, background: '#ef4444', display: 'inline-block' }}></span>
+              <span>Garis Hari Ini</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(99, 102, 241, 0.5)', display: 'inline-block' }}></span>
+              <span>Durasi Tugas</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="gantt-split-container">
+          <div className="gantt-tasks-sidebar">
+            <div className="gantt-tasks-header-cell">
+              Daftar Tugas & Proyek
+            </div>
+            {filteredTasks.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                Tidak ada tugas sesuai filter
+              </div>
+            ) : (
+              filteredTasks.map((task) => (
+                <div 
+                  key={task.id} 
+                  className="gantt-task-side-item"
+                  onClick={() => openEditModal(task)}
+                  title={`Klik untuk detail: ${task.title}`}
+                  style={{
+                    borderLeft: `4px solid ${task.projectColor || '#6366f1'}`
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ 
+                      fontSize: '0.82rem', 
+                      fontWeight: 600, 
+                      color: 'var(--text-primary)', 
+                      whiteSpace: 'nowrap', 
+                      overflow: 'hidden', 
+                      textOverflow: 'ellipsis' 
+                    }}>
+                      {task.title}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {task.projectName || 'Proyek'}
+                      </span>
+                      {task.assigneeName && (
+                        <>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>•</span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 500 }}>
+                            {task.assigneeName}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    background: 
+                      task.status === 'Done' ? 'rgba(16, 185, 129, 0.15)' :
+                      task.status === 'InReview' ? 'rgba(245, 158, 11, 0.15)' :
+                      task.status === 'InProgress' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                    color:
+                      task.status === 'Done' ? '#10b981' :
+                      task.status === 'InReview' ? '#f59e0b' :
+                      task.status === 'InProgress' ? '#6366f1' : '#94a3b8',
+                    flexShrink: 0
+                  }}>
+                    {task.status}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="gantt-canvas-wrapper" style={{ minWidth: canvasWidth }}>
+            <div className="gantt-days-header-row" style={{ width: canvasWidth }}>
+              {gDays.map((d, idx) => {
+                const isToday = d.setHours(0,0,0,0) === todayTimestamp;
+                const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                const dayName = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'][d.getDay()];
+
+                return (
+                  <div 
+                    key={idx} 
+                    className={`gantt-day-col-header ${isToday ? 'is-today' : ''} ${isWeekend ? 'is-weekend' : ''}`}
+                  >
+                    <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>{dayName}</span>
+                    <span style={{ fontWeight: isToday ? 800 : 600 }}>{d.getDate()}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ position: 'relative', width: canvasWidth }}>
+              {todayMarkerLeft !== null && (
+                <div 
+                  className="gantt-today-marker-line"
+                  style={{ left: `${todayMarkerLeft}px` }}
+                  title="Hari Ini"
+                />
+              )}
+
+              {filteredTasks.map((task) => {
+                let tStart = task.startDate ? new Date(task.startDate) : null;
+                let tEnd = task.dueDate ? new Date(task.dueDate) : null;
+
+                if (!tStart && !tEnd) {
+                  tStart = new Date(task.createdAt);
+                  tEnd = new Date(tStart);
+                  tEnd.setDate(tEnd.getDate() + 2);
+                } else if (!tStart && tEnd) {
+                  tStart = new Date(tEnd);
+                  tStart.setDate(tStart.getDate() - 2);
+                } else if (tStart && !tEnd) {
+                  tEnd = new Date(tStart);
+                  tEnd.setDate(tEnd.getDate() + 2);
+                }
+
+                tStart.setHours(0, 0, 0, 0);
+                tEnd.setHours(23, 59, 59, 999);
+
+                const startDiff = (tStart.getTime() - startTimestamp) / (1000 * 60 * 60 * 24);
+                const duration = Math.max(1, (tEnd.getTime() - tStart.getTime()) / (1000 * 60 * 60 * 24));
+
+                const leftPos = Math.max(0, startDiff * cellWidth);
+                const barWidth = Math.max(cellWidth, duration * cellWidth);
+
+                const isVisibleInTimeline = (startDiff + duration) > 0 && startDiff < ganttDaysCount;
+
+                return (
+                  <div key={task.id} className="gantt-row">
+                    {gDays.map((d, cIdx) => {
+                      const isToday = d.setHours(0,0,0,0) === todayTimestamp;
+                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                      return (
+                        <div 
+                          key={cIdx} 
+                          className={`gantt-grid-cell ${isToday ? 'is-today' : ''} ${isWeekend ? 'is-weekend' : ''}`}
+                        />
+                      );
+                    })}
+
+                    {isVisibleInTimeline && (
+                      <div
+                        className="gantt-bar"
+                        style={{
+                          left: `${leftPos}px`,
+                          width: `${barWidth}px`,
+                          background: `linear-gradient(135deg, ${task.projectColor || '#6366f1'} 0%, rgba(99, 102, 241, 0.85) 100%)`,
+                          border: '1px solid rgba(255, 255, 255, 0.2)'
+                        }}
+                        onClick={() => openEditModal(task)}
+                        title={`${task.title} (${task.projectName || 'Proyek'})\nJadwal: ${tStart.toLocaleDateString('id-ID')} s/d ${tEnd.toLocaleDateString('id-ID')}\nStatus: ${task.status}`}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {task.title}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="page-body">
       <div className="page-header">
@@ -751,17 +1264,17 @@ export default function TasksPage({ onlyMyTasks = false }) {
             {isMyTasks && <UserCheck size={26} color="var(--primary)" />}
             <span>{isMyTasks ? 'My Tasks (Tugas Saya)' : 'Manajemen Tugas'}</span>
             <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-muted)' }}>
-              ({viewMode === 'kanban' ? 'Papan Kanban' : 'Tabel Grid'})
+              ({viewMode === 'kanban' ? 'Papan Kanban' : viewMode === 'grid' ? 'Tabel Grid' : viewMode === 'calendar' ? 'Kalender Bulanan' : 'Linimasa Gantt'})
             </span>
           </h1>
           <p>
             {isMyTasks 
               ? 'Daftar tugas yang khusus ditugaskan kepada Anda. Menampilkan data personal tanpa memuat seluruh tugas tim.' 
-              : 'Lacak dan kelola progres pekerjaan tim secara visual (Kanban) atau terstruktur (Tabel Grid).'}
+              : 'Lacak dan kelola progres pekerjaan tim secara visual (Kanban), terstruktur (Tabel Grid), jadwal bulanan (Kalender), atau linimasa (Gantt Chart).'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* View Mode Toggle: Kanban vs Grid Table */}
+          {/* View Mode Toggle: Kanban vs Grid vs Calendar vs Gantt */}
           <div style={{
             display: 'inline-flex',
             background: 'var(--bg-card)',
@@ -812,7 +1325,51 @@ export default function TasksPage({ onlyMyTasks = false }) {
               }}
             >
               <Table size={15} />
-              <span>Tabel Grid</span>
+              <span>Grid</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('calendar')}
+              className="btn btn-sm"
+              style={{
+                background: viewMode === 'calendar' ? 'var(--primary)' : 'transparent',
+                color: viewMode === 'calendar' ? '#fff' : 'var(--text-secondary)',
+                border: 'none',
+                borderRadius: 'calc(var(--radius-md) - 3px)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <CalendarDays size={15} />
+              <span>Kalender</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('timeline')}
+              className="btn btn-sm"
+              style={{
+                background: viewMode === 'timeline' ? 'var(--primary)' : 'transparent',
+                color: viewMode === 'timeline' ? '#fff' : 'var(--text-secondary)',
+                border: 'none',
+                borderRadius: 'calc(var(--radius-md) - 3px)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Clock size={15} />
+              <span>Gantt</span>
             </button>
           </div>
 
@@ -1392,6 +1949,10 @@ export default function TasksPage({ onlyMyTasks = false }) {
             </table>
           </div>
         </div>
+      ) : viewMode === 'calendar' ? (
+        renderCalendarView()
+      ) : viewMode === 'timeline' ? (
+        renderGanttView()
       ) : (
         /* Kanban Columns */
         <div className="kanban-board">
@@ -2074,13 +2635,24 @@ export default function TasksPage({ onlyMyTasks = false }) {
                         />
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                         <div className="form-group" style={{ margin: 0 }}>
-                          <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Deadline</label>
+                          <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Mulai (Start)</label>
                           <input
                             type="date"
                             className="form-control"
-                            value={editingTask.dueDate}
+                            value={editingTask.startDate || ''}
+                            onChange={(e) => setEditingTask({ ...editingTask, startDate: e.target.value })}
+                            style={{ height: 38, fontSize: '0.82rem' }}
+                          />
+                        </div>
+
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontWeight: 600, fontSize: '0.8rem' }}>Tenggat (Due)</label>
+                          <input
+                            type="date"
+                            className="form-control"
+                            value={editingTask.dueDate || ''}
                             onChange={(e) => setEditingTask({ ...editingTask, dueDate: e.target.value })}
                             style={{ height: 38, fontSize: '0.82rem' }}
                           />
@@ -2571,18 +3143,27 @@ export default function TasksPage({ onlyMyTasks = false }) {
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                   <div className="form-group">
-                    <label className="form-label">Target Selesai (Due Date)</label>
+                    <label className="form-label">Tanggal Mulai (Start)</label>
                     <input
                       type="date"
                       className="form-control"
-                      value={newTask.dueDate}
+                      value={newTask.startDate || ''}
+                      onChange={(e) => setNewTask({ ...newTask, startDate: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Target Selesai (Due)</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={newTask.dueDate || ''}
                       onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Estimasi Jam Kerja</label>
+                    <label className="form-label">Estimasi Jam</label>
                     <input
                       type="number"
                       step="0.5"

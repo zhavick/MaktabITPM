@@ -81,6 +81,7 @@ namespace ProjectManagement.Api.Controllers
                     AssigneeId = t.AssigneeId,
                     AssigneeName = t.Assignee != null ? t.Assignee.FullName : null,
                     AssigneeAvatar = t.Assignee != null ? t.Assignee.AvatarUrl : null,
+                    StartDate = t.StartDate,
                     DueDate = t.DueDate,
                     EstimatedHours = t.EstimatedHours,
                     CommentCount = t.Comments.Count,
@@ -137,6 +138,7 @@ namespace ProjectManagement.Api.Controllers
                     AssigneeId = t.AssigneeId,
                     AssigneeName = t.Assignee != null ? t.Assignee.FullName : null,
                     AssigneeAvatar = t.Assignee != null ? t.Assignee.AvatarUrl : null,
+                    StartDate = t.StartDate,
                     DueDate = t.DueDate,
                     EstimatedHours = t.EstimatedHours,
                     CommentCount = t.Comments.Count,
@@ -169,6 +171,7 @@ namespace ProjectManagement.Api.Controllers
                 Category = dto.Category,
                 Milestone = dto.Milestone,
                 AssigneeId = dto.AssigneeId,
+                StartDate = dto.StartDate,
                 DueDate = dto.DueDate,
                 EstimatedHours = dto.EstimatedHours,
                 CreatedAt = DateTime.UtcNow
@@ -222,6 +225,7 @@ namespace ProjectManagement.Api.Controllers
                 AssigneeId = task.AssigneeId,
                 AssigneeName = assignee?.FullName,
                 AssigneeAvatar = assignee?.AvatarUrl,
+                StartDate = task.StartDate,
                 DueDate = task.DueDate,
                 EstimatedHours = task.EstimatedHours,
                 CommentCount = 0,
@@ -316,6 +320,7 @@ namespace ProjectManagement.Api.Controllers
                 AssigneeId = task.AssigneeId,
                 AssigneeName = task.Assignee != null ? task.Assignee.FullName : null,
                 AssigneeAvatar = task.Assignee != null ? task.Assignee.AvatarUrl : null,
+                StartDate = task.StartDate,
                 DueDate = task.DueDate,
                 EstimatedHours = task.EstimatedHours,
                 CommentCount = task.Comments != null ? task.Comments.Count : 0,
@@ -351,6 +356,7 @@ namespace ProjectManagement.Api.Controllers
             task.Category = dto.Category;
             task.Milestone = dto.Milestone;
             task.AssigneeId = dto.AssigneeId;
+            task.StartDate = dto.StartDate;
             task.DueDate = dto.DueDate;
             task.EstimatedHours = dto.EstimatedHours;
 
@@ -396,6 +402,7 @@ namespace ProjectManagement.Api.Controllers
                 AssigneeId = task.AssigneeId,
                 AssigneeName = assignee?.FullName,
                 AssigneeAvatar = assignee?.AvatarUrl,
+                StartDate = task.StartDate,
                 DueDate = task.DueDate,
                 EstimatedHours = task.EstimatedHours,
                 CommentCount = commentCount,
@@ -872,6 +879,7 @@ namespace ProjectManagement.Api.Controllers
                     AssigneeId = t.AssigneeId,
                     AssigneeName = t.Assignee != null ? t.Assignee.FullName : null,
                     AssigneeAvatar = t.Assignee != null ? t.Assignee.AvatarUrl : null,
+                    StartDate = t.StartDate,
                     DueDate = t.DueDate,
                     EstimatedHours = t.EstimatedHours,
                     CreatedAt = t.CreatedAt

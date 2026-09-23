@@ -78,6 +78,7 @@ namespace ProjectManagement.Api.DTOs
         public string? Category { get; set; }
         public string? Milestone { get; set; }
         public int? AssigneeId { get; set; }
+        public DateTime? StartDate { get; set; }
         public DateTime? DueDate { get; set; }
         public decimal EstimatedHours { get; set; } = 0.00m;
     }
@@ -112,6 +113,7 @@ namespace ProjectManagement.Api.DTOs
         public int? AssigneeId { get; set; }
         public string? AssigneeName { get; set; }
         public string? AssigneeAvatar { get; set; }
+        public DateTime? StartDate { get; set; }
         public DateTime? DueDate { get; set; }
         public decimal EstimatedHours { get; set; }
         public int CommentCount { get; set; }

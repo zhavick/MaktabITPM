@@ -209,6 +209,7 @@ using (var scope = app.Services.CreateScope())
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""DeletionRequestedByName"" TEXT NULL;"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""DeletionReason"" TEXT NULL;"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""DeletionRequestedAt"" TEXT NULL;"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tasks"" ADD COLUMN ""StartDate"" TEXT NULL;"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Tickets"" ADD COLUMN ""Category"" TEXT NULL;"); } catch { }
 
         AppDbContext.SeedData(db);

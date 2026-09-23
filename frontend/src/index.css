@@ -725,3 +725,291 @@ textarea.form-control {
     grid-template-columns: repeat(4, 280px);
   }
 }
+
+/* ==========================================================================
+   Task Calendar View Styles
+   ========================================================================== */
+.task-calendar-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.task-calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.task-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-left: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-color);
+}
+
+.task-calendar-weekday {
+  padding: 10px 8px;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.task-calendar-day {
+  min-height: 110px;
+  padding: 6px;
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  transition: background 0.15s ease;
+  position: relative;
+}
+
+.task-calendar-day:hover {
+  background: rgba(99, 102, 241, 0.03);
+}
+
+.task-calendar-day.is-today {
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.task-calendar-day.is-today .day-number {
+  background: var(--primary);
+  color: #fff;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.task-calendar-day.other-month {
+  opacity: 0.35;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.day-number {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.day-tasks-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  max-height: 90px;
+}
+
+.task-cal-pill {
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+}
+
+.task-cal-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  filter: brightness(1.1);
+}
+
+/* ==========================================================================
+   Gantt Timeline View Styles
+   ========================================================================== */
+.gantt-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.gantt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.gantt-split-container {
+  display: flex;
+  width: 100%;
+  overflow-x: auto;
+  position: relative;
+}
+
+.gantt-tasks-sidebar {
+  width: 320px;
+  min-width: 320px;
+  flex-shrink: 0;
+  border-right: 2px solid var(--border-color);
+  background: var(--bg-card);
+  z-index: 2;
+  position: sticky;
+  left: 0;
+}
+
+.gantt-tasks-header-cell {
+  height: 48px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.gantt-task-side-item {
+  height: 52px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.gantt-task-side-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.gantt-canvas-wrapper {
+  flex: 1;
+  overflow-x: auto;
+  position: relative;
+}
+
+.gantt-days-header-row {
+  display: flex;
+  height: 48px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.gantt-day-col-header {
+  width: 44px;
+  min-width: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--border-color);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.gantt-day-col-header.is-today {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.gantt-day-col-header.is-weekend {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.gantt-row {
+  height: 52px;
+  display: flex;
+  position: relative;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.gantt-grid-cell {
+  width: 44px;
+  min-width: 44px;
+  height: 100%;
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.gantt-grid-cell.is-today {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.gantt-grid-cell.is-weekend {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.gantt-bar {
+  position: absolute;
+  top: 8px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+  z-index: 1;
+}
+
+.gantt-bar:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  z-index: 5;
+}
+
+.gantt-today-marker-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #ef4444;
+  z-index: 3;
+  pointer-events: none;
+}
